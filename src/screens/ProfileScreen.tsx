@@ -1,0 +1,265 @@
+import React, { useState } from 'react';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { ACTIVITY_LEVEL_KEYS, type Profile } from '../models';
+import { useProfileStore } from '../store/profileStore';
+import { calculateBmr, calculateTdee } from '../services/bmr';
+import { StatCard } from '../components/StatCard';
+import { Loader } from '../components/Loader';
+import { COLORS, FONT, RADIUS, SPACING } from '../theme/theme';
+
+export function ProfileScreen(): React.ReactElement {
+  const { profile, isLoading, saveProfile } = useProfileStore();
+  const [editing, setEditing] = useState(false);
+
+  if (isLoading || !profile) return <Loader />;
+
+  if (editing) {
+    return (
+      <EditForm
+        current={profile}
+        onSave={async p => {
+          await saveProfile(p);
+          setEditing(false);
+        }}
+        onCancel={() => setEditing(false)}
+      />
+    );
+  }
+
+  const bmr = Math.round(calculateBmr(profile));
+  const tdee = Math.round(calculateTdee(profile));
+
+  return (
+    <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+      <Text style={styles.name}>{profile.name}</Text>
+      <Text style={styles.sub}>{profile.activityLevel}</Text>
+
+      <View style={styles.statRow}>
+        <StatCard label="BMR" value={`${bmr}`} subtitle="kcal/day base" />
+        <View style={{ width: SPACING.sm }} />
+        <StatCard label="TDEE" value={`${tdee}`} subtitle="kcal/day with activity" />
+      </View>
+
+      <View style={styles.infoCard}>
+        <InfoRow label="Age" value={`${profile.age} years`} />
+        <InfoRow label="Height" value={`${profile.heightCm} cm`} />
+        <InfoRow label="Current Weight" value={`${profile.currentWeightKg} kg`} />
+        <InfoRow label="Target Weight" value={`${profile.targetWeightKg} kg`} />
+        <InfoRow label="To lose" value={`${(profile.currentWeightKg - profile.targetWeightKg).toFixed(1)} kg`} last />
+      </View>
+
+      <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(true)}>
+        <Text style={styles.editBtnText}>EDIT PROFILE</Text>
+      </TouchableOpacity>
+    </ScrollView>
+  );
+}
+
+function InfoRow({ label, value, last = false }: { label: string; value: string; last?: boolean }) {
+  return (
+    <>
+      <View style={styles.infoRow}>
+        <Text style={styles.infoLabel}>{label}</Text>
+        <Text style={styles.infoValue}>{value}</Text>
+      </View>
+      {!last && <View style={styles.divider} />}
+    </>
+  );
+}
+
+function EditForm({
+  current,
+  onSave,
+  onCancel,
+}: {
+  current: Profile;
+  onSave: (p: Profile) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(current.name);
+  const [age, setAge] = useState(String(current.age));
+  const [height, setHeight] = useState(String(current.heightCm));
+  const [weight, setWeight] = useState(String(current.currentWeightKg));
+  const [target, setTarget] = useState(String(current.targetWeightKg));
+  const [activity, setActivity] = useState(current.activityLevel);
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    const ageN = parseInt(age, 10);
+    const heightN = parseFloat(height);
+    const weightN = parseFloat(weight);
+    const targetN = parseFloat(target);
+
+    if (!name.trim()) return Alert.alert('Required', 'Enter your name.');
+    if (isNaN(ageN) || ageN < 10) return Alert.alert('Invalid', 'Check age.');
+    if (isNaN(heightN) || heightN < 50) return Alert.alert('Invalid', 'Check height (cm).');
+    if (isNaN(weightN) || weightN < 20) return Alert.alert('Invalid', 'Check weight (kg).');
+    if (isNaN(targetN) || targetN < 20 || targetN >= weightN)
+      return Alert.alert('Invalid', 'Target must be less than current weight.');
+
+    setSaving(true);
+    await onSave({
+      name: name.trim(),
+      age: ageN,
+      heightCm: heightN,
+      currentWeightKg: weightN,
+      targetWeightKg: targetN,
+      activityLevel: activity,
+      updatedAt: new Date().toISOString(),
+    });
+    setSaving(false);
+  }
+
+  return (
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+        <Text style={styles.name}>Edit Profile</Text>
+
+        {([
+          ['Name', name, setName, 'default', 'words'],
+          ['Age', age, setAge, 'number-pad', 'none'],
+          ['Height (cm)', height, setHeight, 'decimal-pad', 'none'],
+          ['Current Weight (kg)', weight, setWeight, 'decimal-pad', 'none'],
+          ['Target Weight (kg)', target, setTarget, 'decimal-pad', 'none'],
+        ] as const).map(([label, val, setter, kbType, autoCapitalize]) => (
+          <View key={label} style={styles.fieldWrap}>
+            <Text style={styles.fieldLabel}>{label}</Text>
+            <TextInput
+              style={styles.input}
+              value={val}
+              onChangeText={setter as (t: string) => void}
+              keyboardType={kbType}
+              autoCapitalize={autoCapitalize}
+              placeholderTextColor={COLORS.textSecondary}
+            />
+          </View>
+        ))}
+
+        <Text style={styles.fieldLabel}>Activity Level</Text>
+        <View style={styles.activityList}>
+          {ACTIVITY_LEVEL_KEYS.map(level => (
+            <TouchableOpacity
+              key={level}
+              style={[styles.activityBtn, activity === level && styles.activityBtnActive]}
+              onPress={() => setActivity(level)}
+            >
+              <Text
+                style={[
+                  styles.activityBtnText,
+                  activity === level && styles.activityBtnTextActive,
+                ]}
+              >
+                {level}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <View style={styles.actionRow}>
+          <TouchableOpacity
+            style={[styles.btn, saving && { opacity: 0.6 }]}
+            onPress={handleSave}
+            disabled={saving}
+          >
+            <Text style={styles.editBtnText}>{saving ? 'SAVING…' : 'SAVE'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.cancelBtn} onPress={onCancel}>
+            <Text style={styles.cancelBtnText}>CANCEL</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: COLORS.background },
+  content: { padding: SPACING.md, paddingBottom: SPACING.xl },
+  name: { color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 26, marginBottom: 2 },
+  sub: { color: COLORS.accent, fontFamily: FONT.bold, fontSize: 12, marginBottom: SPACING.md },
+  statRow: { flexDirection: 'row', marginBottom: SPACING.md },
+  infoCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    paddingHorizontal: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  infoRow: { flexDirection: 'row', paddingVertical: 14 },
+  infoLabel: { flex: 1, color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 14 },
+  infoValue: { color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 14 },
+  divider: { height: 1, backgroundColor: COLORS.divider },
+  editBtn: {
+    backgroundColor: COLORS.accent,
+    borderRadius: RADIUS.md,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  editBtnText: { color: COLORS.black, fontFamily: FONT.bold, fontSize: 14 },
+  fieldWrap: { marginBottom: SPACING.md },
+  fieldLabel: {
+    color: COLORS.textSecondary,
+    fontSize: 12,
+    fontFamily: FONT.bold,
+    marginBottom: SPACING.xs,
+    letterSpacing: 0.5,
+  },
+  input: {
+    backgroundColor: COLORS.surfaceAlt,
+    color: COLORS.textPrimary,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 12,
+    fontSize: 15,
+    fontFamily: FONT.regular,
+    borderWidth: 1,
+    borderColor: COLORS.divider,
+  },
+  activityList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+    marginBottom: SPACING.xl,
+    marginTop: SPACING.xs,
+  },
+  activityBtn: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.xl,
+    borderWidth: 1,
+    borderColor: COLORS.divider,
+    backgroundColor: COLORS.surfaceAlt,
+  },
+  activityBtnActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
+  activityBtnText: { color: COLORS.textSecondary, fontFamily: FONT.bold, fontSize: 12 },
+  activityBtnTextActive: { color: COLORS.black },
+  actionRow: { flexDirection: 'row', gap: SPACING.sm },
+  btn: {
+    flex: 1,
+    backgroundColor: COLORS.accent,
+    borderRadius: RADIUS.md,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  cancelBtn: {
+    flex: 1,
+    borderRadius: RADIUS.md,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.divider,
+  },
+  cancelBtnText: { color: COLORS.textSecondary, fontFamily: FONT.bold, fontSize: 14 },
+});

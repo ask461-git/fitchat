@@ -1,0 +1,201 @@
+import React from 'react';
+import {
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import dayjs from 'dayjs';
+
+import { getNetCal, getTotalIntake } from '../models';
+import { useProfileStore } from '../store/profileStore';
+import { useDailyLogStore } from '../store/dailyLogStore';
+import { calculateTdee } from '../services/bmr';
+import { accumulatedDeficit, etaDate } from '../services/calorie';
+import { StatCard } from '../components/StatCard';
+import { Loader } from '../components/Loader';
+import { COLORS, FONT, RADIUS, SPACING } from '../theme/theme';
+import type { RootStackParamList } from '../navigation/AppNavigator';
+
+type Nav = NativeStackNavigationProp<RootStackParamList>;
+
+export function HomeScreen(): React.ReactElement {
+  const navigation = useNavigation<Nav>();
+  const { profile, isLoading: profileLoading } = useProfileStore();
+  const { todayLog, allLogs, isLoading: logLoading } = useDailyLogStore();
+
+  if (profileLoading || logLoading || !profile || !todayLog) {
+    return <Loader />;
+  }
+
+  const tdee = Math.round(calculateTdee(profile));
+  const totalIn = getTotalIntake(todayLog);
+  const burned = todayLog.workoutCalBurned;
+  const netCal = getNetCal(todayLog);
+  const netColor = netCal <= 0 ? COLORS.deficit : COLORS.surplus;
+  const accumulated = accumulatedDeficit(allLogs);
+  const eta = etaDate(profile.currentWeightKg, profile.targetWeightKg, allLogs);
+  const kgLeft = (profile.currentWeightKg - profile.targetWeightKg).toFixed(1);
+
+  // Simple bar chart data (last 14 days)
+  const chartLogs = allLogs.slice(-14);
+  const maxAbs = Math.max(
+    ...chartLogs.map(l => Math.abs(getNetCal(l))),
+    1,
+  );
+
+  return (
+    <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+      {/* Date header */}
+      <Text style={styles.dateText}>{dayjs().format('dddd, MMM D')}</Text>
+      <Text style={styles.greeting}>Hey, {profile.name} 👊</Text>
+
+      {/* Net Cal big card */}
+      <View style={styles.netCard}>
+        <Text style={styles.netLabel}>
+          {netCal <= 0 ? 'CALORIE DEFICIT' : 'CALORIE SURPLUS'}
+        </Text>
+        <Text style={[styles.netValue, { color: netColor }]}>
+          {netCal > 0 ? '+' : ''}{netCal} kcal
+        </Text>
+        <View style={styles.progressTrack}>
+          <View
+            style={[
+              styles.progressFill,
+              {
+                width: `${Math.min((Math.abs(netCal) / tdee) * 100, 100)}%`,
+                backgroundColor: netColor,
+              },
+            ]}
+          />
+        </View>
+      </View>
+
+      {/* Stats row 1 */}
+      <View style={styles.row}>
+        <StatCard label="INTAKE" value={`${totalIn} kcal`} />
+        <View style={styles.gap} />
+        <StatCard label="BURNED" value={`${burned} kcal`} valueColor={COLORS.deficit} />
+      </View>
+
+      {/* Stats row 2 */}
+      <View style={[styles.row, styles.mt]}>
+        <StatCard label="TDEE" value={`${tdee} kcal`} />
+        <View style={styles.gap} />
+        <StatCard
+          label="TOTAL DEFICIT"
+          value={`${accumulated} kcal`}
+          valueColor={COLORS.deficit}
+        />
+      </View>
+
+      {/* ETA card */}
+      <View style={[styles.etaCard, styles.mt]}>
+        <Text style={styles.etaKg}>🎯 {kgLeft} kg to target</Text>
+        <Text style={styles.etaSub}>
+          {eta
+            ? `ETA: ${dayjs(eta).format('MMM D, YYYY')}`
+            : 'Log more deficit days to unlock ETA'}
+        </Text>
+      </View>
+
+      {/* Bar chart */}
+      {chartLogs.length >= 2 && (
+        <View style={styles.mt}>
+          <Text style={styles.chartTitle}>NET CALORIES — LAST 14 DAYS</Text>
+          <View style={styles.chart}>
+            {chartLogs.map((log, i) => {
+              const net = getNetCal(log);
+              const h = Math.max((Math.abs(net) / maxAbs) * 90, 4);
+              return (
+                <View key={i} style={styles.barWrap}>
+                  <View
+                    style={[
+                      styles.bar,
+                      {
+                        height: h,
+                        backgroundColor: net <= 0 ? COLORS.deficit : COLORS.surplus,
+                      },
+                    ]}
+                  />
+                  <Text style={styles.barDate}>{log.date.slice(8)}</Text>
+                </View>
+              );
+            })}
+          </View>
+        </View>
+      )}
+
+      {/* Talk to Kendrick */}
+      <TouchableOpacity
+        style={styles.chatBtn}
+        onPress={() => navigation.navigate('Chat')}
+      >
+        <Text style={styles.chatBtnText}>🎤 TALK TO KENDRICK</Text>
+      </TouchableOpacity>
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: COLORS.background },
+  content: { padding: SPACING.md, paddingBottom: SPACING.xl },
+  dateText: { color: COLORS.textSecondary, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.8 },
+  greeting: { color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 22, marginBottom: SPACING.md },
+  netCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+  },
+  netLabel: { color: COLORS.textSecondary, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.8 },
+  netValue: { fontFamily: FONT.bold, fontSize: 40, marginVertical: SPACING.sm },
+  progressTrack: {
+    height: 6,
+    backgroundColor: COLORS.surfaceAlt,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  progressFill: { height: 6, borderRadius: 4 },
+  row: { flexDirection: 'row' },
+  gap: { width: SPACING.sm },
+  mt: { marginTop: SPACING.sm },
+  etaCard: {
+    backgroundColor: COLORS.surfaceAlt,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+  },
+  etaKg: { color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 15 },
+  etaSub: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 12, marginTop: 4 },
+  chartTitle: {
+    color: COLORS.textSecondary,
+    fontFamily: FONT.bold,
+    fontSize: 11,
+    letterSpacing: 0.8,
+    marginBottom: SPACING.sm,
+  },
+  chart: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    height: 110,
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.sm,
+    paddingBottom: 22,
+    paddingTop: SPACING.sm,
+  },
+  barWrap: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
+  bar: { width: '70%', borderRadius: 3 },
+  barDate: { color: COLORS.textSecondary, fontSize: 9, marginTop: 3 },
+  chatBtn: {
+    backgroundColor: COLORS.accent,
+    borderRadius: RADIUS.md,
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginTop: SPACING.md,
+  },
+  chatBtnText: { color: COLORS.black, fontFamily: FONT.bold, fontSize: 15 },
+});
