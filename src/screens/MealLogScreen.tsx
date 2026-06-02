@@ -9,14 +9,15 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { MEAL_CATEGORIES, type MealCategory, getNetCal, getTotalIntake, getMealCal } from '../models';
+import dayjs from 'dayjs';
+import { MEAL_CATEGORIES, type MealCategory, type DailyLog, getNetCal, getTotalIntake, getMealCal } from '../models';
 import { useDailyLogStore } from '../store/dailyLogStore';
 import { MealCategoryRow } from '../components/MealCategoryRow';
 import { Loader } from '../components/Loader';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme/theme';
 
 export function MealLogScreen(): React.ReactElement {
-  const { todayLog, isLoading, setMealCalories } = useDailyLogStore();
+  const { todayLog, allLogs, isLoading, setMealCalories } = useDailyLogStore();
   const [editCat, setEditCat] = useState<MealCategory | null>(null);
   const [editVal, setEditVal] = useState('');
 
@@ -26,6 +27,14 @@ export function MealLogScreen(): React.ReactElement {
   const burned = todayLog.workoutCalBurned;
   const net = getNetCal(todayLog);
   const netColor = net <= 0 ? COLORS.deficit : COLORS.surplus;
+
+  // Last 7 calendar days before today, descending.
+  const recentLogs: DailyLog[] = [];
+  for (let i = 1; i <= 7; i++) {
+    const dateStr = dayjs().subtract(i, 'day').format('YYYY-MM-DD');
+    const found = allLogs.find(l => l.date === dateStr);
+    if (found) recentLogs.push(found);
+  }
 
   function openEdit(cat: MealCategory) {
     setEditCat(cat);
@@ -68,6 +77,42 @@ export function MealLogScreen(): React.ReactElement {
           bold
         />
       </View>
+
+      {/* Last 7 days */}
+      {recentLogs.length > 0 && (
+        <>
+          <Text style={[styles.title, { marginTop: SPACING.lg }]}>LAST 7 DAYS</Text>
+          <View style={styles.historyCard}>
+            {recentLogs.map((log, idx) => {
+              const dayTotal = getTotalIntake(log);
+              const dayNet = getNetCal(log);
+              const dayNetColor = dayNet <= 0 ? COLORS.deficit : COLORS.surplus;
+              const isLast = idx === recentLogs.length - 1;
+              return (
+                <View key={log.date}>
+                  <View style={styles.historyRow}>
+                    <View>
+                      <Text style={styles.historyDate}>
+                        {dayjs(log.date).format('ddd, MMM D')}
+                      </Text>
+                      <Text style={styles.historyBurned}>
+                        {log.workoutCalBurned > 0 ? `–${log.workoutCalBurned} burned` : 'No workout'}
+                      </Text>
+                    </View>
+                    <View style={styles.historyRight}>
+                      <Text style={styles.historyTotal}>{dayTotal} kcal</Text>
+                      <Text style={[styles.historyNet, { color: dayNetColor }]}>
+                        {dayNet > 0 ? '+' : ''}{dayNet} net
+                      </Text>
+                    </View>
+                  </View>
+                  {!isLast && <View style={styles.divider} />}
+                </View>
+              );
+            })}
+          </View>
+        </>
+      )}
 
       {/* Edit modal */}
       <Modal
@@ -189,4 +234,37 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalBtnText: { color: COLORS.black, fontFamily: FONT.bold, fontSize: 15 },
+  historyCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    paddingHorizontal: SPACING.md,
+  },
+  historyRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: SPACING.sm + 2,
+  },
+  historyDate: {
+    color: COLORS.textPrimary,
+    fontFamily: FONT.bold,
+    fontSize: 14,
+  },
+  historyBurned: {
+    color: COLORS.textSecondary,
+    fontFamily: FONT.regular,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  historyRight: { alignItems: 'flex-end' },
+  historyTotal: {
+    color: COLORS.textPrimary,
+    fontFamily: FONT.bold,
+    fontSize: 14,
+  },
+  historyNet: {
+    fontFamily: FONT.regular,
+    fontSize: 12,
+    marginTop: 2,
+  },
 });
