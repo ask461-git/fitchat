@@ -34,7 +34,10 @@ jobs:
 
       # Push Gemini key into Expo's secret vault so EAS Build can access it.
       - name: Set Gemini API key as EAS secret
-        run: eas secret:push --scope project --env-file <(echo "EXPO_PUBLIC_GEMINI_API_KEY=$GEMINI_API_KEY") --force
+        run: |
+          printf 'EXPO_PUBLIC_GEMINI_API_KEY=%s\n' "$GEMINI_API_KEY" > /tmp/eas.env
+          eas secret:push --scope project --env-file /tmp/eas.env --force
+          rm /tmp/eas.env
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
