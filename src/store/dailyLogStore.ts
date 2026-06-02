@@ -38,6 +38,7 @@ interface DailyLogState {
   addWorkoutCalories: (calories: number) => Promise<void>;
   addWorkout: (workout: WorkoutLog) => Promise<void>;
   deleteWorkout: (workout: WorkoutLog) => Promise<void>;
+  clearToday: () => Promise<void>;
 }
 
 export const useDailyLogStore = create<DailyLogState>((set, get) => ({
@@ -107,6 +108,15 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
     // Remove its contribution from the daily log.
     await get().addWorkoutCalories(-workout.caloriesBurned);
     const workouts = await db.getWorkoutsForDate(todayStr());
+    set({ todayWorkouts: workouts });
+  },
+
+  clearToday: async () => {
+    const date = todayStr();
+    await db.resetDailyLog(date);
+    await get().loadToday();
+    await get().loadAllLogs();
+    const workouts = await db.getWorkoutsForDate(date);
     set({ todayWorkouts: workouts });
   },
 }));

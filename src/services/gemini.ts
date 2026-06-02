@@ -26,6 +26,7 @@ export interface GeminiResponse {
   text: string;
   mealsLogged: LogMealResult[];
   workoutsLogged: LogWorkoutResult[];
+  clearToday?: boolean;
 }
 
 export type ConversationTurn = {
@@ -50,6 +51,7 @@ CRITICAL RULES:
 - If the user mentions multiple meals or multiple meal categories in one message, call log_meal SEPARATELY for EACH category. Never combine multiple meals into one log_meal call.
 - When the user describes a workout, ALWAYS call log_workout. Do not just acknowledge it — LOG IT.
 - If the user asks how they're doing today, call get_daily_summary first.
+- If the user asks to delete, clear, or reset all entries for today, call clear_today.
 - Keep responses tight, rhythmic, in character. 2–5 sentences max unless the user asks for more detail.`;
 
 // ---------------------------------------------------------------------------
@@ -113,6 +115,15 @@ const TOOLS = [
           required: [],
         },
       },
+      {
+        name: 'clear_today',
+        description: 'Reset all meal and workout calories for today to zero. Use when the user asks to delete, clear, or reset all entries for today.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {},
+          required: [],
+        },
+      },
     ],
   },
 ];
@@ -149,6 +160,7 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
 
   const mealsLogged: LogMealResult[] = [];
   const workoutsLogged: LogWorkoutResult[] = [];
+  let clearToday = false;
   let finalText = '';
 
   // Agentic loop — keep going until the model stops making tool calls.
@@ -171,17 +183,23 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = (await res.json()) as any;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const parts: any[] = data.candidates[0].content.parts;
+    const parts: any[] = data?.candidates?.[0]?.content?.parts ?? [];
+
+    // If the model returned no parts (blocked / unusual response), stop.
+    if (parts.length === 0) {
+      finalText = "I hear you, cousin, but I can't do that one. Try rephrasing.";
+      break;
+    }
 
     // Append model turn to the running conversation.
     contents.push({ role: 'model', parts });
 
-    const fnCallParts = parts.filter(p => p.functionCall);
+    const fnCallParts = parts.filter((p: any) => p.functionCall);
 
     if (fnCallParts.length === 0) {
       finalText = parts
-        .filter(p => p.text)
-        .map(p => p.text as string)
+        .filter((p: any) => p.text)
+        .map((p: any) => p.text as string)
         .join('\n')
         .trim();
       break;
@@ -226,6 +244,11 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
           break;
         }
 
+        case 'clear_today':
+          clearToday = true;
+          result = { success: true, message: 'All entries for today have been cleared.' };
+          break;
+
         case 'get_daily_summary':
           result = {
             date: todayLog.date,
@@ -257,5 +280,6 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
     text: finalText || "I got you, cousin. Already logged.",
     mealsLogged,
     workoutsLogged,
+    clearToday,
   };
 }

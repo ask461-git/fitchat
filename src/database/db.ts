@@ -296,6 +296,18 @@ export async function deleteWorkout(id: number): Promise<void> {
   await db.runAsync('DELETE FROM workout_logs WHERE id = ?', [id]);
 }
 
+export async function resetDailyLog(date: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `UPDATE daily_logs SET
+      breakfast_cal = 0, morning_snack_cal = 0, lunch_cal = 0,
+      evening_snack_cal = 0, dinner_cal = 0, workout_cal_burned = 0
+     WHERE date = ?`,
+    [date],
+  );
+  await db.runAsync('DELETE FROM workout_logs WHERE date = ?', [date]);
+}
+
 // ---------------------------------------------------------------------------
 // Chat Messages
 // ---------------------------------------------------------------------------
