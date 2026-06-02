@@ -58,21 +58,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
       _history.push({ role: 'model', parts: [{ text: response.text }] });
       if (_history.length > 40) _history.splice(0, _history.length - 40);
 
-      // Persist any logged meal.
-      if (response.mealLogged) {
+      // Persist any logged meals (there may be multiple from one message).
+      for (const meal of response.mealsLogged) {
         await useDailyLogStore
           .getState()
-          .addMealCalories(
-            response.mealLogged.category,
-            response.mealLogged.estimatedCalories,
-          );
+          .addMealCalories(meal.category, meal.estimatedCalories);
       }
 
-      // Persist any logged workout.
-      if (response.workoutLogged) {
+      // Persist any logged workouts.
+      for (const workout of response.workoutsLogged) {
         await useDailyLogStore
           .getState()
-          .addWorkoutCalories(response.workoutLogged.estimatedCaloriesBurned);
+          .addWorkoutCalories(workout.estimatedCaloriesBurned);
       }
 
       const modelMsg: ChatMessage = {

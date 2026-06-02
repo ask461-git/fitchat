@@ -24,8 +24,8 @@ export interface LogWorkoutResult {
 
 export interface GeminiResponse {
   text: string;
-  mealLogged?: LogMealResult;
-  workoutLogged?: LogWorkoutResult;
+  mealsLogged: LogMealResult[];
+  workoutsLogged: LogWorkoutResult[];
 }
 
 export type ConversationTurn = {
@@ -47,6 +47,7 @@ You are a personal health and fitness coach inside the FitChat app. Your job:
 
 CRITICAL RULES:
 - When the user describes food/drink they ate, ALWAYS call log_meal. Do not just acknowledge it — LOG IT.
+- If the user mentions multiple meals or multiple meal categories in one message, call log_meal SEPARATELY for EACH category. Never combine multiple meals into one log_meal call.
 - When the user describes a workout, ALWAYS call log_workout. Do not just acknowledge it — LOG IT.
 - If the user asks how they're doing today, call get_daily_summary first.
 - Keep responses tight, rhythmic, in character. 2–5 sentences max unless the user asks for more detail.`;
@@ -146,8 +147,8 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
     },
   ];
 
-  let mealLogged: LogMealResult | undefined;
-  let workoutLogged: LogWorkoutResult | undefined;
+  const mealsLogged: LogMealResult[] = [];
+  const workoutsLogged: LogWorkoutResult[] = [];
   let finalText = '';
 
   // Agentic loop — keep going until the model stops making tool calls.
@@ -197,29 +198,33 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
       let result: any;
 
       switch (name) {
-        case 'log_meal':
-          mealLogged = {
+        case 'log_meal': {
+          const meal: LogMealResult = {
             category: args['category'],
             foodDescription: args['food_description'],
             estimatedCalories: Number(args['estimated_calories']),
           };
+          mealsLogged.push(meal);
           result = {
             success: true,
-            message: `Logged ${mealLogged.estimatedCalories} kcal for ${mealLogged.category}`,
+            message: `Logged ${meal.estimatedCalories} kcal for ${meal.category}`,
           };
           break;
+        }
 
-        case 'log_workout':
-          workoutLogged = {
+        case 'log_workout': {
+          const workout: LogWorkoutResult = {
             exerciseType: args['exercise_type'],
             durationMinutes: Number(args['duration_minutes']),
             estimatedCaloriesBurned: Number(args['estimated_calories_burned']),
           };
+          workoutsLogged.push(workout);
           result = {
             success: true,
-            message: `Logged ${workoutLogged.estimatedCaloriesBurned} kcal burned`,
+            message: `Logged ${workout.estimatedCaloriesBurned} kcal burned`,
           };
           break;
+        }
 
         case 'get_daily_summary':
           result = {
@@ -250,7 +255,7 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
 
   return {
     text: finalText || "I got you, cousin. Already logged.",
-    mealLogged,
-    workoutLogged,
+    mealsLogged,
+    workoutsLogged,
   };
 }
