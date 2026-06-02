@@ -26,7 +26,7 @@ export interface GeminiResponse {
   text: string;
   mealsLogged: LogMealResult[];
   workoutsLogged: LogWorkoutResult[];
-  clearToday?: boolean;
+  clearDate?: string; // YYYY-MM-DD if the user asked to clear a specific day
 }
 
 export type ConversationTurn = {
@@ -51,7 +51,7 @@ CRITICAL RULES:
 - If the user mentions multiple meals or multiple meal categories in one message, call log_meal SEPARATELY for EACH category. Never combine multiple meals into one log_meal call.
 - When the user describes a workout, ALWAYS call log_workout. Do not just acknowledge it — LOG IT.
 - If the user asks how they're doing today, call get_daily_summary first.
-- If the user asks to delete, clear, or reset all entries for today, call clear_today.
+- If the user asks to delete, clear, or reset entries for today or a specific date, call clear_day with the appropriate YYYY-MM-DD date.
 - Keep responses tight, rhythmic, in character. 2–5 sentences max unless the user asks for more detail.`;
 
 // ---------------------------------------------------------------------------
@@ -116,12 +116,17 @@ const TOOLS = [
         },
       },
       {
-        name: 'clear_today',
-        description: 'Reset all meal and workout calories for today to zero. Use when the user asks to delete, clear, or reset all entries for today.',
+        name: 'clear_day',
+        description: 'Reset all meal and workout calories for a specific date to zero. Use when the user asks to delete, clear, or reset entries for today or any past date.',
         parameters: {
           type: 'OBJECT',
-          properties: {},
-          required: [],
+          properties: {
+            date: {
+              type: 'STRING',
+              description: 'The date to clear in YYYY-MM-DD format. Use today\'s date if the user says "today".',
+            },
+          },
+          required: ['date'],
         },
       },
     ],
@@ -160,7 +165,7 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
 
   const mealsLogged: LogMealResult[] = [];
   const workoutsLogged: LogWorkoutResult[] = [];
-  let clearToday = false;
+  let clearDate: string | undefined;
   let finalText = '';
 
   // Agentic loop — keep going until the model stops making tool calls.
@@ -244,9 +249,9 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
           break;
         }
 
-        case 'clear_today':
-          clearToday = true;
-          result = { success: true, message: 'All entries for today have been cleared.' };
+        case 'clear_day':
+          clearDate = args['date'];
+          result = { success: true, message: `All entries for ${clearDate} have been cleared.` };
           break;
 
         case 'get_daily_summary':
@@ -280,6 +285,6 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
     text: finalText || "I got you, cousin. Already logged.",
     mealsLogged,
     workoutsLogged,
-    clearToday,
+    clearDate,
   };
 }

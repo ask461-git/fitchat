@@ -72,9 +72,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
           .addWorkoutCalories(workout.estimatedCaloriesBurned);
       }
 
-      // Clear today if requested.
-      if (response.clearToday) {
-        await useDailyLogStore.getState().clearToday();
+      // Clear a specific day if requested.
+      if (response.clearDate) {
+        await useDailyLogStore.getState().clearDay(response.clearDate);
       }
 
       const modelMsg: ChatMessage = {

@@ -38,7 +38,7 @@ interface DailyLogState {
   addWorkoutCalories: (calories: number) => Promise<void>;
   addWorkout: (workout: WorkoutLog) => Promise<void>;
   deleteWorkout: (workout: WorkoutLog) => Promise<void>;
-  clearToday: () => Promise<void>;
+  clearDay: (date: string) => Promise<void>;
 }
 
 export const useDailyLogStore = create<DailyLogState>((set, get) => ({
@@ -111,12 +111,14 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
     set({ todayWorkouts: workouts });
   },
 
-  clearToday: async () => {
-    const date = todayStr();
+  clearDay: async (date) => {
     await db.resetDailyLog(date);
-    await get().loadToday();
+    // Refresh today's state only if the cleared date is today.
+    if (date === todayStr()) {
+      await get().loadToday();
+      const workouts = await db.getWorkoutsForDate(date);
+      set({ todayWorkouts: workouts });
+    }
     await get().loadAllLogs();
-    const workouts = await db.getWorkoutsForDate(date);
-    set({ todayWorkouts: workouts });
   },
 }));
