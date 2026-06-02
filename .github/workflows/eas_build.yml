@@ -32,6 +32,12 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
+      # Push Gemini key into Expo's secret vault so EAS Build can access it.
+      - name: Set Gemini API key as EAS secret
+        run: eas secret:push --scope project --env-file <(echo "EXPO_PUBLIC_GEMINI_API_KEY=$GEMINI_API_KEY") --force
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
       # The EAS build runs in Expo's cloud — no Android SDK needed locally.
       - name: Trigger EAS APK build
         run: eas build --platform android --profile preview --non-interactive
