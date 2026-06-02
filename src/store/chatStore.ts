@@ -63,6 +63,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
         await useDailyLogStore
           .getState()
           .addMealCalories(meal.category, meal.estimatedCalories);
+        await db.insertMealEntry({
+          date,
+          category: meal.category,
+          foodDescription: meal.foodDescription,
+          calories: meal.estimatedCalories,
+        });
       }
 
       // Persist any logged workouts.

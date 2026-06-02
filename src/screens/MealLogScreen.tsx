@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   Modal,
@@ -10,16 +10,29 @@ import {
   View,
 } from 'react-native';
 import dayjs from 'dayjs';
-import { MEAL_CATEGORIES, type MealCategory, type DailyLog, getNetCal, getTotalIntake, getMealCal } from '../models';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../navigation/AppNavigator';
+import { MEAL_CATEGORIES, type MealCategory, type DailyLog, type MealEntry, getNetCal, getTotalIntake, getMealCal } from '../models';
 import { useDailyLogStore } from '../store/dailyLogStore';
 import { MealCategoryRow } from '../components/MealCategoryRow';
 import { Loader } from '../components/Loader';
+import * as db from '../database/db';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme/theme';
 
 export function MealLogScreen(): React.ReactElement {
   const { todayLog, allLogs, isLoading, setMealCalories } = useDailyLogStore();
   const [editCat, setEditCat] = useState<MealCategory | null>(null);
   const [editVal, setEditVal] = useState('');
+  const [todayEntries, setTodayEntries] = useState<MealEntry[]>([]);
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
+  const todayStr = dayjs().format('YYYY-MM-DD');
+
+  // Load today's meal entries whenever todayLog changes (new meals logged).
+  useEffect(() => {
+    db.getMealEntriesForDate(todayStr).then(setTodayEntries);
+  }, [todayLog]);
 
   if (isLoading || !todayLog) return <Loader />;
 
@@ -28,12 +41,21 @@ export function MealLogScreen(): React.ReactElement {
   const net = getNetCal(todayLog);
   const netColor = net <= 0 ? COLORS.deficit : COLORS.surplus;
 
-  // Last 7 calendar days before today, descending.
+  // Always show all 7 prior days, filling zeros for days with no record.
   const recentLogs: DailyLog[] = [];
   for (let i = 1; i <= 7; i++) {
     const dateStr = dayjs().subtract(i, 'day').format('YYYY-MM-DD');
     const found = allLogs.find(l => l.date === dateStr);
-    if (found) recentLogs.push(found);
+    recentLogs.push(found ?? {
+      date: dateStr,
+      breakfastCal: 0,
+      morningSnackCal: 0,
+      lunchCal: 0,
+      eveningSnackCal: 0,
+      dinnerCal: 0,
+      workoutCalBurned: 0,
+      tdeeSnapshot: 0,
+    });
   }
 
   function openEdit(cat: MealCategory) {
@@ -55,14 +77,28 @@ export function MealLogScreen(): React.ReactElement {
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
       <Text style={styles.title}>TODAY'S MEALS</Text>
 
-      {MEAL_CATEGORIES.map(cat => (
-        <MealCategoryRow
-          key={cat}
-          category={cat}
-          calories={getMealCal(todayLog, cat)}
-          onPress={() => openEdit(cat)}
-        />
-      ))}
+      {MEAL_CATEGORIES.map(cat => {
+        const catEntries = todayEntries.filter(e => e.category === cat);
+        return (
+          <View key={cat}>
+            <MealCategoryRow
+              category={cat}
+              calories={getMealCal(todayLog, cat)}
+              onPress={() => openEdit(cat)}
+            />
+            {catEntries.length > 0 && (
+              <View style={styles.dishList}>
+                {catEntries.map(e => (
+                  <View key={e.id} style={styles.dishRow}>
+                    <Text style={styles.dishDesc}>{e.foodDescription}</Text>
+                    <Text style={styles.dishKcal}>{e.calories} kcal</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+          </View>
+        );
+      })}
 
       {/* Summary */}
       <View style={styles.summaryCard}>
@@ -90,7 +126,11 @@ export function MealLogScreen(): React.ReactElement {
               const isLast = idx === recentLogs.length - 1;
               return (
                 <View key={log.date}>
-                  <View style={styles.historyRow}>
+                  <TouchableOpacity
+                    style={styles.historyRow}
+                    onPress={() => navigation.navigate('DayDetail', { date: log.date })}
+                    activeOpacity={0.7}
+                  >
                     <View>
                       <Text style={styles.historyDate}>
                         {dayjs(log.date).format('ddd, MMM D')}
@@ -105,7 +145,7 @@ export function MealLogScreen(): React.ReactElement {
                         {dayNet > 0 ? '+' : ''}{dayNet} net
                       </Text>
                     </View>
-                  </View>
+                  </TouchableOpacity>
                   {!isLast && <View style={styles.divider} />}
                 </View>
               );
@@ -234,6 +274,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalBtnText: { color: COLORS.black, fontFamily: FONT.bold, fontSize: 15 },
+  dishList: {
+    backgroundColor: COLORS.surfaceAlt,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.xs,
+    marginBottom: SPACING.xs,
+  },
+  dishRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 3,
+  },
+  dishDesc: {
+    color: COLORS.textSecondary,
+    fontFamily: FONT.regular,
+    fontSize: 12,
+    flex: 1,
+    paddingRight: SPACING.sm,
+  },
+  dishKcal: {
+    color: COLORS.textSecondary,
+    fontFamily: FONT.regular,
+    fontSize: 12,
+  },
   historyCard: {
     backgroundColor: COLORS.surface,
     borderRadius: RADIUS.lg,

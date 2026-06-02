@@ -1,5 +1,5 @@
 import * as SQLite from 'expo-sqlite';
-import type { ChatMessage, DailyLog, Profile, WorkoutLog } from '../models';
+import type { ChatMessage, DailyLog, MealEntry, Profile, WorkoutLog } from '../models';
 
 // Module-level singleton — opened once and reused.
 let _db: SQLite.SQLiteDatabase | null = null;
@@ -52,9 +52,18 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
       timestamp TEXT NOT NULL
     );
 
-    CREATE INDEX IF NOT EXISTS idx_daily_date    ON daily_logs(date);
-    CREATE INDEX IF NOT EXISTS idx_workout_date  ON workout_logs(date);
-    CREATE INDEX IF NOT EXISTS idx_chat_date     ON chat_messages(date);
+    CREATE TABLE IF NOT EXISTS meal_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      category TEXT NOT NULL,
+      food_description TEXT NOT NULL,
+      calories INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_daily_date        ON daily_logs(date);
+    CREATE INDEX IF NOT EXISTS idx_workout_date      ON workout_logs(date);
+    CREATE INDEX IF NOT EXISTS idx_chat_date         ON chat_messages(date);
+    CREATE INDEX IF NOT EXISTS idx_meal_entries_date ON meal_entries(date);
   `);
 
   return _db;
@@ -102,6 +111,14 @@ interface ChatRow {
   role: string;
   content: string;
   timestamp: string;
+}
+
+interface MealEntryRow {
+  id: number;
+  date: string;
+  category: string;
+  food_description: string;
+  calories: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -153,6 +170,16 @@ function toChat(r: ChatRow): ChatMessage {
     role: r.role as 'user' | 'model',
     content: r.content,
     timestamp: r.timestamp,
+  };
+}
+
+function toMealEntry(r: MealEntryRow): MealEntry {
+  return {
+    id: r.id,
+    date: r.date,
+    category: r.category,
+    foodDescription: r.food_description,
+    calories: r.calories,
   };
 }
 
@@ -306,6 +333,29 @@ export async function resetDailyLog(date: string): Promise<void> {
     [date],
   );
   await db.runAsync('DELETE FROM workout_logs WHERE date = ?', [date]);
+  await db.runAsync('DELETE FROM meal_entries WHERE date = ?', [date]);
+}
+
+// ---------------------------------------------------------------------------
+// Meal Entries
+// ---------------------------------------------------------------------------
+
+export async function insertMealEntry(entry: MealEntry): Promise<MealEntry> {
+  const db = await getDb();
+  const res = await db.runAsync(
+    'INSERT INTO meal_entries (date, category, food_description, calories) VALUES (?, ?, ?, ?)',
+    [entry.date, entry.category, entry.foodDescription, entry.calories],
+  );
+  return { ...entry, id: res.lastInsertRowId };
+}
+
+export async function getMealEntriesForDate(date: string): Promise<MealEntry[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<MealEntryRow>(
+    'SELECT * FROM meal_entries WHERE date = ? ORDER BY id ASC',
+    [date],
+  );
+  return rows.map(toMealEntry);
 }
 
 // ---------------------------------------------------------------------------

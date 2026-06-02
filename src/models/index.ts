@@ -98,6 +98,16 @@ export const EXERCISE_METS: Record<string, number> = {
   'Other': 5.0,
 };
 
+// ---------------------------------------------------------------------------
+
+export interface MealEntry {
+  id?: number;
+  date: string;
+  category: string;
+  foodDescription: string;
+  calories: number;
+}
+
 export const EXERCISE_KEYS = Object.keys(EXERCISE_METS);
 
 export function estimateWorkoutCalories(

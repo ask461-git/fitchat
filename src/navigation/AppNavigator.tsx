@@ -13,6 +13,7 @@ import { ChatScreen } from '../screens/ChatScreen';
 import { MealLogScreen } from '../screens/MealLogScreen';
 import { WorkoutScreen } from '../screens/WorkoutScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
+import { DayDetailScreen } from '../screens/DayDetailScreen';
 import { Loader } from '../components/Loader';
 import { COLORS, FONT } from '../theme/theme';
 
@@ -20,6 +21,7 @@ export type RootStackParamList = {
   Onboarding: undefined;
   Tabs: undefined;
   Chat: undefined;
+  DayDetail: { date: string };
 };
 
 type TabParamList = {
@@ -110,6 +112,17 @@ export function AppNavigator() {
                 headerTintColor: COLORS.textPrimary,
                 headerTitleStyle: { fontFamily: FONT.bold },
               }}
+            />
+            <Stack.Screen
+              name="DayDetail"
+              component={DayDetailScreen}
+              options={({ route }) => ({
+                headerShown: true,
+                title: route.params.date,
+                headerStyle: { backgroundColor: COLORS.surface },
+                headerTintColor: COLORS.textPrimary,
+                headerTitleStyle: { fontFamily: FONT.bold },
+              })}
             />
           </>
         )}
