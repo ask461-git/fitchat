@@ -27,6 +27,7 @@ export interface GeminiResponse {
   mealsLogged: LogMealResult[];
   workoutsLogged: LogWorkoutResult[];
   clearDate?: string; // YYYY-MM-DD if the user asked to clear a specific day
+  usage: { promptTokens: number; candidatesTokens: number };
 }
 
 export type ConversationTurn = {
@@ -167,6 +168,8 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
   const workoutsLogged: LogWorkoutResult[] = [];
   let clearDate: string | undefined;
   let finalText = '';
+  let totalPromptTokens = 0;
+  let totalCandidatesTokens = 0;
 
   // Agentic loop — keep going until the model stops making tool calls.
   for (let round = 0; round < 5; round++) {
@@ -187,6 +190,9 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = (await res.json()) as any;
+    // Accumulate token usage across agentic rounds.
+    totalPromptTokens += Number(data?.usageMetadata?.promptTokenCount ?? 0);
+    totalCandidatesTokens += Number(data?.usageMetadata?.candidatesTokenCount ?? 0);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const parts: any[] = data?.candidates?.[0]?.content?.parts ?? [];
 
@@ -286,5 +292,6 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
     mealsLogged,
     workoutsLogged,
     clearDate,
+    usage: { promptTokens: totalPromptTokens, candidatesTokens: totalCandidatesTokens },
   };
 }

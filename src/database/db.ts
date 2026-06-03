@@ -60,10 +60,19 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
       calories INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS api_usage (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      prompt_tokens INTEGER NOT NULL DEFAULT 0,
+      candidates_tokens INTEGER NOT NULL DEFAULT 0,
+      cost_usd REAL NOT NULL DEFAULT 0
+    );
+
     CREATE INDEX IF NOT EXISTS idx_daily_date        ON daily_logs(date);
     CREATE INDEX IF NOT EXISTS idx_workout_date      ON workout_logs(date);
     CREATE INDEX IF NOT EXISTS idx_chat_date         ON chat_messages(date);
     CREATE INDEX IF NOT EXISTS idx_meal_entries_date ON meal_entries(date);
+    CREATE INDEX IF NOT EXISTS idx_api_usage_date    ON api_usage(date);
   `);
 
   return _db;
@@ -378,4 +387,53 @@ export async function getChatMessagesForDate(date: string): Promise<ChatMessage[
     [date],
   );
   return rows.map(toChat);
+}
+
+export async function getChatMessagesForDateRange(
+  startDate: string,
+  endDate: string,
+): Promise<ChatMessage[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<ChatRow>(
+    'SELECT * FROM chat_messages WHERE date >= ? AND date <= ? ORDER BY date ASC, timestamp ASC',
+    [startDate, endDate],
+  );
+  return rows.map(toChat);
+}
+
+// ---------------------------------------------------------------------------
+// API Usage
+// ---------------------------------------------------------------------------
+
+export async function recordApiUsage(
+  date: string,
+  promptTokens: number,
+  candidatesTokens: number,
+  costUsd: number,
+): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    'INSERT INTO api_usage (date, prompt_tokens, candidates_tokens, cost_usd) VALUES (?, ?, ?, ?)',
+    [date, promptTokens, candidatesTokens, costUsd],
+  );
+}
+
+export async function getApiUsageTotals(): Promise<{
+  totalPromptTokens: number;
+  totalCandidatesTokens: number;
+  totalCostUsd: number;
+}> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ pt: number; ct: number; cost: number }>(
+    `SELECT
+       COALESCE(SUM(prompt_tokens), 0)     AS pt,
+       COALESCE(SUM(candidates_tokens), 0) AS ct,
+       COALESCE(SUM(cost_usd), 0.0)        AS cost
+     FROM api_usage`,
+  );
+  return {
+    totalPromptTokens: row?.pt ?? 0,
+    totalCandidatesTokens: row?.ct ?? 0,
+    totalCostUsd: row?.cost ?? 0,
+  };
 }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -16,10 +16,20 @@ import { calculateBmr, calculateTdee } from '../services/bmr';
 import { StatCard } from '../components/StatCard';
 import { Loader } from '../components/Loader';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme/theme';
+import * as db from '../database/db';
 
 export function ProfileScreen(): React.ReactElement {
   const { profile, isLoading, saveProfile } = useProfileStore();
   const [editing, setEditing] = useState(false);
+  const [apiUsage, setApiUsage] = useState<{
+    totalPromptTokens: number;
+    totalCandidatesTokens: number;
+    totalCostUsd: number;
+  } | null>(null);
+
+  useEffect(() => {
+    db.getApiUsageTotals().then(setApiUsage);
+  }, []);
 
   if (isLoading || !profile) return <Loader />;
 
@@ -61,6 +71,31 @@ export function ProfileScreen(): React.ReactElement {
       <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(true)}>
         <Text style={styles.editBtnText}>EDIT PROFILE</Text>
       </TouchableOpacity>
+
+      {apiUsage && (
+        <View style={styles.sectionWrap}>
+          <Text style={styles.sectionLabel}>GEMINI API USAGE (EST.)</Text>
+          <View style={styles.infoCard}>
+            <InfoRow
+              label="Input tokens"
+              value={apiUsage.totalPromptTokens.toLocaleString()}
+            />
+            <InfoRow
+              label="Output tokens"
+              value={apiUsage.totalCandidatesTokens.toLocaleString()}
+            />
+            <InfoRow
+              label="Est. cost"
+              value={`$${apiUsage.totalCostUsd.toFixed(4)}`}
+              last
+            />
+          </View>
+          <Text style={styles.usageNote}>
+            Based on Gemini 2.5 Flash list pricing ($0.075 / $0.30 per 1M tokens).
+            Free-tier usage is not deducted.
+          </Text>
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -208,6 +243,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   editBtnText: { color: COLORS.black, fontFamily: FONT.bold, fontSize: 14 },
+  sectionWrap: { marginTop: SPACING.lg },
+  sectionLabel: {
+    color: COLORS.textSecondary,
+    fontFamily: FONT.bold,
+    fontSize: 11,
+    letterSpacing: 1,
+    marginBottom: SPACING.sm,
+  },
+  usageNote: {
+    color: COLORS.textSecondary,
+    fontFamily: FONT.regular,
+    fontSize: 11,
+    marginTop: SPACING.sm,
+    fontStyle: 'italic',
+    lineHeight: 16,
+  },
   fieldWrap: { marginBottom: SPACING.md },
   fieldLabel: {
     color: COLORS.textSecondary,

@@ -2,33 +2,74 @@ import { create } from 'zustand';
 import dayjs from 'dayjs';
 import * as db from '../database/db';
 import type { ChatMessage } from '../models';
-import type { ConversationTurn } from '../services/gemini';
+import type { ConversationTurn, LogMealResult, LogWorkoutResult } from '../services/gemini';
 import { sendMessage as geminiSend } from '../services/gemini';
 import { useProfileStore } from './profileStore';
 import { useDailyLogStore } from './dailyLogStore';
 
+// Gemini 2.5 Flash estimated pricing (USD per token).
+const PRICE_INPUT_PER_TOKEN = 0.075 / 1_000_000;
+const PRICE_OUTPUT_PER_TOKEN = 0.30 / 1_000_000;
+
+export interface PendingLogItems {
+  meals: LogMealResult[];
+  workouts: LogWorkoutResult[];
+  date: string;
+}
+
 interface ChatState {
   messages: ChatMessage[];
   isSending: boolean;
+  historyLoaded: boolean;
+  pendingItems: PendingLogItems | null;
   loadToday: () => Promise<void>;
+  loadHistory: () => Promise<void>;
   sendUserMessage: (text: string) => Promise<void>;
+  confirmPendingItems: () => Promise<void>;
+  rejectPendingItems: () => Promise<void>;
 }
 
 // In-memory rolling conversation history sent to Gemini (plain text only,
 // no tool call rounds). Capped at 40 entries (20 turns) to control token cost.
 const _history: ConversationTurn[] = [];
 
+// Last 3 days' chat loaded once per session as silent background context.
+let _contextHistory: ConversationTurn[] = [];
+
 export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   isSending: false,
+  historyLoaded: false,
+  pendingItems: null,
 
   loadToday: async () => {
     const date = dayjs().format('YYYY-MM-DD');
     const msgs = await db.getChatMessagesForDate(date);
     set({ messages: msgs });
+
+    // Pre-load last 3 days (D-3 to D-1) as context for Kendrick.
+    const threeDaysAgo = dayjs().subtract(3, 'day').format('YYYY-MM-DD');
+    const yesterday = dayjs().subtract(1, 'day').format('YYYY-MM-DD');
+    const pastMsgs = await db.getChatMessagesForDateRange(threeDaysAgo, yesterday);
+    _contextHistory = pastMsgs.map(m => ({
+      role: m.role as 'user' | 'model',
+      parts: [{ text: m.content }],
+    }));
+  },
+
+  loadHistory: async () => {
+    const today = dayjs().format('YYYY-MM-DD');
+    const sevenDaysAgo = dayjs().subtract(7, 'day').format('YYYY-MM-DD');
+    const yesterday = dayjs().subtract(1, 'day').format('YYYY-MM-DD');
+    const pastMsgs = await db.getChatMessagesForDateRange(sevenDaysAgo, yesterday);
+    const todayMsgs = get().messages.filter(m => m.date === today);
+    set({ messages: [...pastMsgs, ...todayMsgs], historyLoaded: true });
   },
 
   sendUserMessage: async (text) => {
+    // Block sending while a pending confirmation is waiting.
+    if (get().pendingItems) return;
+
     const date = dayjs().format('YYYY-MM-DD');
     const profile = useProfileStore.getState().profile;
     const todayLog = useDailyLogStore.getState().todayLog;
@@ -47,38 +88,44 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     try {
       const response = await geminiSend({
-        history: [..._history],
+        // Combine 3-day background context with this session's rolling history.
+        history: [..._contextHistory, ..._history],
         userMessage: text,
         profile,
         todayLog,
       });
 
-      // Update rolling history with plain text.
+      // Update rolling session history with plain text.
       _history.push({ role: 'user', parts: [{ text }] });
       _history.push({ role: 'model', parts: [{ text: response.text }] });
       if (_history.length > 40) _history.splice(0, _history.length - 40);
 
-      // Persist any logged meals (there may be multiple from one message).
-      for (const meal of response.mealsLogged) {
-        await useDailyLogStore
-          .getState()
-          .addMealCalories(meal.category, meal.estimatedCalories);
-        await db.insertMealEntry({
-          date,
-          category: meal.category,
-          foodDescription: meal.foodDescription,
-          calories: meal.estimatedCalories,
+      // Record API token usage + estimated cost.
+      const costUsd =
+        response.usage.promptTokens * PRICE_INPUT_PER_TOKEN +
+        response.usage.candidatesTokens * PRICE_OUTPUT_PER_TOKEN;
+      await db.recordApiUsage(
+        date,
+        response.usage.promptTokens,
+        response.usage.candidatesTokens,
+        costUsd,
+      );
+
+      // If Kendrick proposed meals or workouts, hold them for user confirmation
+      // instead of committing immediately (Bug #1 fix).
+      const hasPending =
+        response.mealsLogged.length > 0 || response.workoutsLogged.length > 0;
+      if (hasPending) {
+        set({
+          pendingItems: {
+            meals: response.mealsLogged,
+            workouts: response.workoutsLogged,
+            date,
+          },
         });
       }
 
-      // Persist any logged workouts.
-      for (const workout of response.workoutsLogged) {
-        await useDailyLogStore
-          .getState()
-          .addWorkoutCalories(workout.estimatedCaloriesBurned);
-      }
-
-      // Clear a specific day if requested.
+      // Clear requests need no confirmation — just execute.
       if (response.clearDate) {
         await useDailyLogStore.getState().clearDay(response.clearDate);
       }
@@ -103,5 +150,45 @@ export const useChatStore = create<ChatState>((set, get) => ({
     } finally {
       set({ isSending: false });
     }
+  },
+
+  confirmPendingItems: async () => {
+    const pending = get().pendingItems;
+    if (!pending) return;
+    const { meals, workouts, date } = pending;
+
+    // Commit meals: update daily_logs aggregate + insert meal_entries detail.
+    for (const meal of meals) {
+      await useDailyLogStore
+        .getState()
+        .addMealCalories(meal.category, meal.estimatedCalories);
+      await db.insertMealEntry({
+        date,
+        category: meal.category,
+        foodDescription: meal.foodDescription,
+        calories: meal.estimatedCalories,
+      });
+    }
+
+    // Commit workouts: insertWorkout record + update daily burned calories (Bug #2 fix).
+    for (const workout of workouts) {
+      await useDailyLogStore.getState().addWorkout({
+        date,
+        exerciseType: workout.exerciseType,
+        durationMinutes: workout.durationMinutes,
+        caloriesBurned: workout.estimatedCaloriesBurned,
+        notes: 'Logged via Kendrick',
+      });
+    }
+
+    set({ pendingItems: null });
+  },
+
+  rejectPendingItems: async () => {
+    set({ pendingItems: null });
+    // Ask Kendrick to re-estimate — he'll come back with new proposals.
+    await get().sendUserMessage(
+      "Those estimates don't look right, cousin. Can you re-check the calories and give me a better estimate?",
+    );
   },
 }));
