@@ -4,6 +4,7 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -12,8 +13,10 @@ import {
 } from 'react-native';
 import dayjs from 'dayjs';
 import { useChatStore } from '../store/chatStore';
+import type { DraftMeal, DraftWorkout } from '../store/chatStore';
 import { ChatBubble } from '../components/ChatBubble';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme/theme';
+import { MEAL_CATEGORIES } from '../models';
 import type { ChatMessage } from '../models';
 
 // ---------------------------------------------------------------------------
@@ -59,6 +62,11 @@ export function ChatScreen(): React.ReactElement {
     loadToday,
     sendUserMessage,
     loadHistory,
+    updateDraftMeal,
+    removeDraftMeal,
+    addDraftMeal,
+    updateDraftWorkout,
+    removeDraftWorkout,
     confirmPendingItems,
     rejectPendingItems,
   } = useChatStore();
@@ -149,26 +157,103 @@ export function ChatScreen(): React.ReactElement {
         </View>
       )}
 
-      {/* Pending confirmation card (Bug #1 fix) */}
+      {/* Refinement panel — editable before committing */}
       {pendingItems && (
-        <View style={styles.confirmCard}>
-          <Text style={styles.confirmTitle}>📋 Kendrick wants to log:</Text>
-          {pendingItems.meals.map((m, i) => (
-            <Text key={`m-${i}`} style={styles.confirmItem}>
-              • {m.category}: {m.foodDescription} — {m.estimatedCalories} kcal
-            </Text>
-          ))}
-          {pendingItems.workouts.map((w, i) => (
-            <Text key={`w-${i}`} style={styles.confirmItem}>
-              • {w.exerciseType} {w.durationMinutes} min — {w.estimatedCaloriesBurned} kcal burned
-            </Text>
-          ))}
+        <View style={styles.refinementPanel}>
+          <Text style={styles.refinementTitle}>✏️  Review & refine before logging</Text>
+          <ScrollView style={styles.refinementScroll} keyboardShouldPersistTaps="handled">
+
+            {/* Meal rows */}
+            {pendingItems.meals.length > 0 && (
+              <Text style={styles.refinementSection}>MEALS</Text>
+            )}
+            {pendingItems.meals.map((m: DraftMeal) => (
+              <View key={m.id} style={styles.draftRow}>
+                {/* Category pill selector */}
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.catScroll}>
+                  {MEAL_CATEGORIES.map(cat => (
+                    <TouchableOpacity
+                      key={cat}
+                      style={[styles.catPill, m.category === cat && styles.catPillActive]}
+                      onPress={() => updateDraftMeal(m.id, { category: cat })}
+                    >
+                      <Text style={[styles.catPillText, m.category === cat && styles.catPillTextActive]}>
+                        {cat}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+                <View style={styles.draftFields}>
+                  <TextInput
+                    style={[styles.draftInput, { flex: 1 }]}
+                    value={m.foodDescription}
+                    onChangeText={v => updateDraftMeal(m.id, { foodDescription: v })}
+                    placeholder="Food description"
+                    placeholderTextColor={COLORS.textSecondary}
+                  />
+                  <TextInput
+                    style={[styles.draftInput, styles.draftKcal]}
+                    value={m.estimatedCalories > 0 ? String(m.estimatedCalories) : ''}
+                    onChangeText={v => updateDraftMeal(m.id, { estimatedCalories: parseInt(v, 10) || 0 })}
+                    keyboardType="number-pad"
+                    placeholder="kcal"
+                    placeholderTextColor={COLORS.textSecondary}
+                  />
+                  <TouchableOpacity onPress={() => removeDraftMeal(m.id)} style={styles.draftRemove}>
+                    <Text style={styles.draftRemoveText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+            <TouchableOpacity style={styles.addRowBtn} onPress={addDraftMeal}>
+              <Text style={styles.addRowBtnText}>+ Add meal item</Text>
+            </TouchableOpacity>
+
+            {/* Workout rows */}
+            {pendingItems.workouts.length > 0 && (
+              <Text style={[styles.refinementSection, { marginTop: SPACING.sm }]}>WORKOUTS</Text>
+            )}
+            {pendingItems.workouts.map((w: DraftWorkout) => (
+              <View key={w.id} style={styles.draftRow}>
+                <View style={styles.draftFields}>
+                  <TextInput
+                    style={[styles.draftInput, { flex: 1 }]}
+                    value={w.exerciseType}
+                    onChangeText={v => updateDraftWorkout(w.id, { exerciseType: v })}
+                    placeholder="Exercise type"
+                    placeholderTextColor={COLORS.textSecondary}
+                  />
+                  <TextInput
+                    style={[styles.draftInput, styles.draftKcal]}
+                    value={w.durationMinutes > 0 ? String(w.durationMinutes) : ''}
+                    onChangeText={v => updateDraftWorkout(w.id, { durationMinutes: parseInt(v, 10) || 0 })}
+                    keyboardType="number-pad"
+                    placeholder="min"
+                    placeholderTextColor={COLORS.textSecondary}
+                  />
+                  <TextInput
+                    style={[styles.draftInput, styles.draftKcal]}
+                    value={w.estimatedCaloriesBurned > 0 ? String(w.estimatedCaloriesBurned) : ''}
+                    onChangeText={v => updateDraftWorkout(w.id, { estimatedCaloriesBurned: parseInt(v, 10) || 0 })}
+                    keyboardType="number-pad"
+                    placeholder="kcal"
+                    placeholderTextColor={COLORS.textSecondary}
+                  />
+                  <TouchableOpacity onPress={() => removeDraftWorkout(w.id)} style={styles.draftRemove}>
+                    <Text style={styles.draftRemoveText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))}
+
+          </ScrollView>
+
           <View style={styles.confirmBtns}>
             <TouchableOpacity style={styles.rejectBtn} onPress={rejectPendingItems}>
-              <Text style={styles.rejectBtnText}>👎  Re-check</Text>
+              <Text style={styles.rejectBtnText}>✕  Discard</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.confirmBtn} onPress={confirmPendingItems}>
-              <Text style={styles.confirmBtnText}>👍  Looks good</Text>
+              <Text style={styles.confirmBtnText}>✓  Log it</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -273,27 +358,75 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
   },
   typingText: { color: COLORS.textSecondary, fontSize: 12, fontFamily: FONT.regular },
-  // Confirmation card
-  confirmCard: {
+  // Refinement panel
+  refinementPanel: {
     margin: SPACING.sm,
-    padding: SPACING.md,
     backgroundColor: COLORS.surface,
     borderRadius: RADIUS.md,
     borderWidth: 1,
     borderColor: COLORS.accent,
-    gap: SPACING.xs,
+    overflow: 'hidden',
+    maxHeight: 340,
   },
-  confirmTitle: {
+  refinementTitle: {
     color: COLORS.textPrimary,
     fontFamily: FONT.bold,
     fontSize: 13,
-    marginBottom: SPACING.xs,
+    padding: SPACING.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.divider,
   },
-  confirmItem: {
+  refinementScroll: { maxHeight: 240 },
+  refinementSection: {
     color: COLORS.textSecondary,
-    fontFamily: FONT.regular,
+    fontFamily: FONT.bold,
+    fontSize: 10,
+    letterSpacing: 0.8,
+    paddingHorizontal: SPACING.sm,
+    paddingTop: SPACING.xs,
+  },
+  draftRow: {
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.divider,
+  },
+  catScroll: { marginBottom: SPACING.xs },
+  catPill: {
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 3,
+    borderRadius: RADIUS.xl,
+    borderWidth: 1,
+    borderColor: COLORS.divider,
+    marginRight: SPACING.xs,
+    backgroundColor: COLORS.surfaceAlt,
+  },
+  catPillActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
+  catPillText: { color: COLORS.textSecondary, fontFamily: FONT.bold, fontSize: 11 },
+  catPillTextActive: { color: COLORS.black },
+  draftFields: { flexDirection: 'row', alignItems: 'center', gap: SPACING.xs },
+  draftInput: {
+    backgroundColor: COLORS.surfaceAlt,
+    color: COLORS.textPrimary,
+    borderRadius: RADIUS.sm,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 5,
     fontSize: 13,
-    lineHeight: 20,
+    fontFamily: FONT.regular,
+    borderWidth: 1,
+    borderColor: COLORS.divider,
+  },
+  draftKcal: { width: 58 },
+  draftRemove: { paddingLeft: SPACING.xs },
+  draftRemoveText: { color: COLORS.surplus, fontSize: 14 },
+  addRowBtn: {
+    padding: SPACING.sm,
+    alignItems: 'center',
+  },
+  addRowBtnText: {
+    color: COLORS.accent,
+    fontFamily: FONT.bold,
+    fontSize: 12,
   },
   confirmBtns: {
     flexDirection: 'row',

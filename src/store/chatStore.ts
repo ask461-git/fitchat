@@ -11,9 +11,23 @@ import { useDailyLogStore } from './dailyLogStore';
 const PRICE_INPUT_PER_TOKEN = 0.075 / 1_000_000;
 const PRICE_OUTPUT_PER_TOKEN = 0.30 / 1_000_000;
 
+export interface DraftMeal {
+  id: string; // local key for list rendering
+  category: string;
+  foodDescription: string;
+  estimatedCalories: number;
+}
+
+export interface DraftWorkout {
+  id: string;
+  exerciseType: string;
+  durationMinutes: number;
+  estimatedCaloriesBurned: number;
+}
+
 export interface PendingLogItems {
-  meals: LogMealResult[];
-  workouts: LogWorkoutResult[];
+  meals: DraftMeal[];
+  workouts: DraftWorkout[];
   date: string;
 }
 
@@ -25,6 +39,11 @@ interface ChatState {
   loadToday: () => Promise<void>;
   loadHistory: () => Promise<void>;
   sendUserMessage: (text: string) => Promise<void>;
+  updateDraftMeal: (id: string, patch: Partial<Omit<DraftMeal, 'id'>>) => void;
+  removeDraftMeal: (id: string) => void;
+  addDraftMeal: () => void;
+  updateDraftWorkout: (id: string, patch: Partial<Omit<DraftWorkout, 'id'>>) => void;
+  removeDraftWorkout: (id: string) => void;
   confirmPendingItems: () => Promise<void>;
   rejectPendingItems: () => Promise<void>;
 }
@@ -111,15 +130,26 @@ export const useChatStore = create<ChatState>((set, get) => ({
         costUsd,
       );
 
-      // If Kendrick proposed meals or workouts, hold them for user confirmation
-      // instead of committing immediately (Bug #1 fix).
+      // If Kendrick proposed meals or workouts, hold them for user confirmation.
+      // Convert to DraftMeal/DraftWorkout so the UI can inline-edit them.
       const hasPending =
         response.mealsLogged.length > 0 || response.workoutsLogged.length > 0;
       if (hasPending) {
+        let draftId = 0;
         set({
           pendingItems: {
-            meals: response.mealsLogged,
-            workouts: response.workoutsLogged,
+            meals: response.mealsLogged.map(m => ({
+              id: `m-${draftId++}`,
+              category: m.category,
+              foodDescription: m.foodDescription,
+              estimatedCalories: m.estimatedCalories,
+            })),
+            workouts: response.workoutsLogged.map(w => ({
+              id: `w-${draftId++}`,
+              exerciseType: w.exerciseType,
+              durationMinutes: w.durationMinutes,
+              estimatedCaloriesBurned: w.estimatedCaloriesBurned,
+            })),
             date,
           },
         });
@@ -152,6 +182,46 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
+  updateDraftMeal: (id, patch) => {
+    const p = get().pendingItems;
+    if (!p) return;
+    set({ pendingItems: { ...p, meals: p.meals.map(m => m.id === id ? { ...m, ...patch } : m) } });
+  },
+
+  removeDraftMeal: (id) => {
+    const p = get().pendingItems;
+    if (!p) return;
+    const meals = p.meals.filter(m => m.id !== id);
+    if (meals.length === 0 && p.workouts.length === 0) { set({ pendingItems: null }); return; }
+    set({ pendingItems: { ...p, meals } });
+  },
+
+  addDraftMeal: () => {
+    const p = get().pendingItems;
+    if (!p) return;
+    const newMeal: DraftMeal = {
+      id: `m-${Date.now()}`,
+      category: 'Lunch',
+      foodDescription: '',
+      estimatedCalories: 0,
+    };
+    set({ pendingItems: { ...p, meals: [...p.meals, newMeal] } });
+  },
+
+  updateDraftWorkout: (id, patch) => {
+    const p = get().pendingItems;
+    if (!p) return;
+    set({ pendingItems: { ...p, workouts: p.workouts.map(w => w.id === id ? { ...w, ...patch } : w) } });
+  },
+
+  removeDraftWorkout: (id) => {
+    const p = get().pendingItems;
+    if (!p) return;
+    const workouts = p.workouts.filter(w => w.id !== id);
+    if (workouts.length === 0 && p.meals.length === 0) { set({ pendingItems: null }); return; }
+    set({ pendingItems: { ...p, workouts } });
+  },
+
   confirmPendingItems: async () => {
     const pending = get().pendingItems;
     if (!pending) return;
@@ -159,6 +229,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     // Commit meals: update daily_logs aggregate + insert meal_entries detail.
     for (const meal of meals) {
+      if (!meal.foodDescription.trim() || meal.estimatedCalories <= 0) continue;
       await useDailyLogStore
         .getState()
         .addMealCalories(meal.category, meal.estimatedCalories);
@@ -170,8 +241,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       });
     }
 
-    // Commit workouts: insertWorkout record + update daily burned calories (Bug #2 fix).
+    // Commit workouts.
     for (const workout of workouts) {
+      if (workout.estimatedCaloriesBurned <= 0) continue;
       await useDailyLogStore.getState().addWorkout({
         date,
         exerciseType: workout.exerciseType,
