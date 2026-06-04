@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import dayjs from 'dayjs';
 import * as db from '../database/db';
-import type { DailyLog, WorkoutLog } from '../models';
+import type { DailyLog, WorkoutLog, MealEntry } from '../models';
 import { getTdeeFromStore } from './profileStore';
+import { syncDayToSheets } from '../services/sheetsSync';
 
 function todayStr(): string {
   return dayjs().format('YYYY-MM-DD');
@@ -38,6 +39,8 @@ interface DailyLogState {
   addWorkoutCalories: (calories: number) => Promise<void>;
   addWorkout: (workout: WorkoutLog) => Promise<void>;
   deleteWorkout: (workout: WorkoutLog) => Promise<void>;
+  deleteMealEntry: (entry: MealEntry) => Promise<void>;
+  syncToSheets: () => Promise<void>;
   clearDay: (date: string) => Promise<void>;
 }
 
@@ -71,6 +74,7 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
     await db.updateDailyLog(updated);
     const allLogs = await db.getAllDailyLogs();
     set({ todayLog: updated, allLogs });
+    get().syncToSheets();
   },
 
   setMealCalories: async (category, calories) => {
@@ -80,6 +84,7 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
     await db.updateDailyLog(updated);
     const allLogs = await db.getAllDailyLogs();
     set({ todayLog: updated, allLogs });
+    get().syncToSheets();
   },
 
   addWorkoutCalories: async (calories) => {
@@ -92,6 +97,7 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
     await db.updateDailyLog(updated);
     const allLogs = await db.getAllDailyLogs();
     set({ todayLog: updated, allLogs });
+    get().syncToSheets();
   },
 
   addWorkout: async (workout) => {
@@ -100,6 +106,7 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
     await get().addWorkoutCalories(workout.caloriesBurned);
     const workouts = await db.getWorkoutsForDate(todayStr());
     set({ todayWorkouts: workouts });
+    // syncToSheets is called inside addWorkoutCalories → setMealCalories chain.
   },
 
   deleteWorkout: async (workout) => {
@@ -109,6 +116,29 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
     await get().addWorkoutCalories(-workout.caloriesBurned);
     const workouts = await db.getWorkoutsForDate(todayStr());
     set({ todayWorkouts: workouts });
+    // syncToSheets is called inside addWorkoutCalories.
+  },
+
+  deleteMealEntry: async (entry) => {
+    if (!entry.id) return;
+    await db.deleteMealEntry(entry.id);
+    // Recalculate category total from remaining entries.
+    const remaining = await db.getMealEntriesForDate(todayStr());
+    const categoryTotal = remaining
+      .filter(e => e.category === entry.category)
+      .reduce((sum, e) => sum + e.calories, 0);
+    await get().setMealCalories(entry.category, categoryTotal);
+    // syncToSheets is called inside setMealCalories.
+  },
+
+  syncToSheets: async () => {
+    const log = get().todayLog;
+    if (!log) return;
+    const [meals, workouts] = await Promise.all([
+      db.getMealEntriesForDate(log.date),
+      db.getWorkoutsForDate(log.date),
+    ]);
+    await syncDayToSheets(log, meals, workouts);
   },
 
   clearDay: async (date) => {

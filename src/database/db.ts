@@ -367,6 +367,11 @@ export async function getMealEntriesForDate(date: string): Promise<MealEntry[]> 
   return rows.map(toMealEntry);
 }
 
+export async function deleteMealEntry(id: number): Promise<void> {
+  const db = await getDb();
+  await db.runAsync('DELETE FROM meal_entries WHERE id = ?', [id]);
+}
+
 // ---------------------------------------------------------------------------
 // Chat Messages
 // ---------------------------------------------------------------------------

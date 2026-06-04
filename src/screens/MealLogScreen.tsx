@@ -21,7 +21,7 @@ import * as db from '../database/db';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme/theme';
 
 export function MealLogScreen(): React.ReactElement {
-  const { todayLog, allLogs, isLoading, setMealCalories } = useDailyLogStore();
+  const { todayLog, allLogs, isLoading, setMealCalories, deleteMealEntry } = useDailyLogStore();
   const [editCat, setEditCat] = useState<MealCategory | null>(null);
   const [editVal, setEditVal] = useState('');
   const [todayEntries, setTodayEntries] = useState<MealEntry[]>([]);
@@ -69,8 +69,42 @@ export function MealLogScreen(): React.ReactElement {
     const val = parseInt(editVal, 10);
     if (isNaN(val) || val < 0)
       return Alert.alert('Invalid', 'Enter a number ≥ 0.');
+
+    // Delete all existing entries for this category so the two data sources
+    // stay in sync. Then insert one "Manual entry" if val > 0.
+    const toRemove = todayEntries.filter(e => e.category === editCat);
+    for (const e of toRemove) {
+      if (e.id) await db.deleteMealEntry(e.id);
+    }
+    let kept = todayEntries.filter(e => e.category !== editCat);
+    if (val > 0) {
+      const newEntry = await db.insertMealEntry({
+        date: todayStr,
+        category: editCat,
+        foodDescription: 'Manual entry',
+        calories: val,
+      });
+      kept = [...kept, newEntry];
+    }
+    setTodayEntries(kept);
+
     await setMealCalories(editCat, val);
     setEditCat(null);
+  }
+
+  async function handleDeleteEntry(entry: MealEntry) {
+    Alert.alert('Delete entry?', entry.foodDescription, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          await deleteMealEntry(entry);
+          const updated = await db.getMealEntriesForDate(todayStr);
+          setTodayEntries(updated);
+        },
+      },
+    ]);
   }
 
   return (
@@ -92,6 +126,9 @@ export function MealLogScreen(): React.ReactElement {
                   <View key={e.id} style={styles.dishRow}>
                     <Text style={styles.dishDesc}>{e.foodDescription}</Text>
                     <Text style={styles.dishKcal}>{e.calories} kcal</Text>
+                    <TouchableOpacity onPress={() => handleDeleteEntry(e)}>
+                      <Text style={styles.dishDelete}>✕</Text>
+                    </TouchableOpacity>
                   </View>
                 ))}
               </View>
@@ -297,6 +334,11 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     fontFamily: FONT.regular,
     fontSize: 12,
+  },
+  dishDelete: {
+    color: COLORS.surplus,
+    fontSize: 13,
+    paddingLeft: SPACING.sm,
   },
   historyCard: {
     backgroundColor: COLORS.surface,

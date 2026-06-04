@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import {
   useFonts,
   Montserrat_400Regular,
@@ -19,6 +19,46 @@ import { COLORS } from './src/theme/theme';
 // Keep splash visible until we're ready.
 SplashScreen.preventAutoHideAsync();
 
+// ---------------------------------------------------------------------------
+// Error boundary — catches render-time crashes and shows them in the UI
+// so they are visible both on the virtual device and in Logcat.
+// ---------------------------------------------------------------------------
+interface EBState { error: Error | null }
+class ErrorBoundary extends React.Component<React.PropsWithChildren, EBState> {
+  state: EBState = { error: null };
+
+  static getDerivedStateFromError(error: Error): EBState {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('[FitChat] Render error:', error.message);
+    console.error('[FitChat] Component stack:', info.componentStack);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <ScrollView style={ebStyles.container} contentContainerStyle={ebStyles.content}>
+          <Text style={ebStyles.heading}>App Crash</Text>
+          <Text style={ebStyles.message}>{this.state.error.message}</Text>
+          <Text style={ebStyles.stack}>{this.state.error.stack}</Text>
+        </ScrollView>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const ebStyles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#0d0d0d' },
+  content: { padding: 20, paddingTop: 60 },
+  heading: { color: '#ff4444', fontSize: 20, fontWeight: 'bold', marginBottom: 12 },
+  message: { color: '#ffffff', fontSize: 14, marginBottom: 16 },
+  stack: { color: '#aaaaaa', fontSize: 11, fontFamily: 'monospace' },
+});
+// ---------------------------------------------------------------------------
+
 export default function App() {
   const [fontsLoaded] = useFonts({ Montserrat_400Regular, Montserrat_700Bold });
   const [dbReady, setDbReady] = useState(false);
@@ -31,10 +71,18 @@ export default function App() {
 
   useEffect(() => {
     async function init() {
-      await getDb();           // creates tables / migrations
-      await loadProfile();
-      await Promise.all([loadToday(), loadAllLogs(), loadTodayWorkouts(), loadChat()]);
-      setDbReady(true);
+      try {
+        console.log('[FitChat] init: opening database');
+        await getDb();
+        console.log('[FitChat] init: loading profile');
+        await loadProfile();
+        console.log('[FitChat] init: loading logs + workouts + chat');
+        await Promise.all([loadToday(), loadAllLogs(), loadTodayWorkouts(), loadChat()]);
+        console.log('[FitChat] init: complete');
+        setDbReady(true);
+      } catch (e) {
+        console.error('[FitChat] init failed:', e);
+      }
     }
     init();
   }, [loadProfile, loadToday, loadAllLogs, loadTodayWorkouts, loadChat]);
@@ -50,10 +98,12 @@ export default function App() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: COLORS.background }}>
-      <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
-        <AppNavigator />
-      </View>
-    </GestureHandlerRootView>
+    <ErrorBoundary>
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: COLORS.background }}>
+        <View style={{ flex: 1 }} onLayout={onLayoutRootView}>
+          <AppNavigator />
+        </View>
+      </GestureHandlerRootView>
+    </ErrorBoundary>
   );
 }

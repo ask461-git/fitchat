@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { ACTIVITY_LEVEL_KEYS, type Profile } from '../models';
 import { useProfileStore } from '../store/profileStore';
+import { useDailyLogStore } from '../store/dailyLogStore';
 import { calculateBmr, calculateTdee } from '../services/bmr';
 import { StatCard } from '../components/StatCard';
 import { Loader } from '../components/Loader';
@@ -20,7 +21,10 @@ import * as db from '../database/db';
 
 export function ProfileScreen(): React.ReactElement {
   const { profile, isLoading, saveProfile } = useProfileStore();
+  const syncToSheets = useDailyLogStore(s => s.syncToSheets);
   const [editing, setEditing] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'ok' | 'err'>('idle');
   const [apiUsage, setApiUsage] = useState<{
     totalPromptTokens: number;
     totalCandidatesTokens: number;
@@ -49,6 +53,21 @@ export function ProfileScreen(): React.ReactElement {
   const bmr = Math.round(calculateBmr(profile));
   const tdee = Math.round(calculateTdee(profile));
 
+  const sheetsConfigured = !!process.env.EXPO_PUBLIC_SHEETS_URL;
+
+  async function handleSyncNow() {
+    setSyncing(true);
+    setSyncStatus('idle');
+    try {
+      await syncToSheets();
+      setSyncStatus('ok');
+    } catch {
+      setSyncStatus('err');
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
       <Text style={styles.name}>{profile.name}</Text>
@@ -71,6 +90,30 @@ export function ProfileScreen(): React.ReactElement {
       <TouchableOpacity style={styles.editBtn} onPress={() => setEditing(true)}>
         <Text style={styles.editBtnText}>EDIT PROFILE</Text>
       </TouchableOpacity>
+
+      {/* Google Sheets sync */}
+      <View style={styles.sectionWrap}>
+        <Text style={styles.sectionLabel}>GOOGLE SHEETS SYNC</Text>
+        <View style={styles.infoCard}>
+          <View style={styles.syncRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.syncLabel}>Auto-syncs today’s data after every change.</Text>
+              {!sheetsConfigured && (
+                <Text style={styles.syncNote}>Set EXPO_PUBLIC_SHEETS_URL in .env to enable.</Text>
+              )}
+            </View>
+            <TouchableOpacity
+              style={[styles.syncBtn, (!sheetsConfigured || syncing) && styles.syncBtnDisabled]}
+              onPress={handleSyncNow}
+              disabled={!sheetsConfigured || syncing}
+            >
+              <Text style={styles.syncBtnText}>
+                {syncing ? 'SYNCING…' : syncStatus === 'ok' ? '✓ SYNCED' : syncStatus === 'err' ? '✗ FAILED' : 'SYNC NOW'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
 
       {apiUsage && (
         <View style={styles.sectionWrap}>
@@ -251,6 +294,22 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: SPACING.sm,
   },
+  syncRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+  },
+  syncLabel: { color: COLORS.textPrimary, fontFamily: FONT.regular, fontSize: 13 },
+  syncNote: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 11, marginTop: 3 },
+  syncBtn: {
+    backgroundColor: COLORS.accent,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 8,
+    marginLeft: SPACING.sm,
+  },
+  syncBtnDisabled: { backgroundColor: COLORS.surfaceAlt },
+  syncBtnText: { color: COLORS.black, fontFamily: FONT.bold, fontSize: 12 },
   usageNote: {
     color: COLORS.textSecondary,
     fontFamily: FONT.regular,

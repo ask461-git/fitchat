@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
+import dayjs from 'dayjs';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -12,7 +13,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { EXERCISE_KEYS, estimateWorkoutCalories } from '../models';
+import { EXERCISE_KEYS, estimateWorkoutCalories, type WorkoutLog } from '../models';
 import { useProfileStore } from '../store/profileStore';
 import { useDailyLogStore } from '../store/dailyLogStore';
 import { Loader } from '../components/Loader';
@@ -30,16 +31,39 @@ export function WorkoutScreen(): React.ReactElement {
   const [duration, setDuration] = useState('');
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [editingWorkout, setEditingWorkout] = useState<WorkoutLog | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
 
   if (isLoading || !profile) return <Loader />;
 
   const durationN = parseInt(duration, 10) || 0;
   const estimate = estimateWorkoutCalories(exercise, durationN, profile.currentWeightKg);
 
+  function handleEdit(w: WorkoutLog) {
+    setEditingWorkout(w);
+    setExercise(w.exerciseType);
+    setDuration(String(w.durationMinutes));
+    setNotes(w.notes || '');
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }
+
+  function handleCancelEdit() {
+    setEditingWorkout(null);
+    setExercise(EXERCISE_KEYS[0]);
+    setDuration('');
+    setNotes('');
+  }
+
   async function handleLog() {
     if (durationN < 1) return Alert.alert('Required', 'Enter duration in minutes.');
     setSaving(true);
+    if (editingWorkout) {
+      // Delete the old entry (will subtract old calories) then insert updated.
+      await deleteWorkout(editingWorkout);
+      setEditingWorkout(null);
+    }
     await addWorkout({
+      date: dayjs().format('YYYY-MM-DD'),
       exerciseType: exercise,
       durationMinutes: durationN,
       caloriesBurned: estimate,
@@ -50,13 +74,13 @@ export function WorkoutScreen(): React.ReactElement {
     setSaving(false);
   }
 
-  async function handleDelete(id: number) {
+  async function handleDelete(workout: WorkoutLog) {
     Alert.alert('Delete workout?', '', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
         style: 'destructive',
-        onPress: () => deleteWorkout(id),
+        onPress: () => deleteWorkout(workout),
       },
     ]);
   }
@@ -66,8 +90,18 @@ export function WorkoutScreen(): React.ReactElement {
       style={{ flex: 1 }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <ScrollView style={styles.root} contentContainerStyle={styles.content}>
-        <Text style={styles.title}>LOG WORKOUT</Text>
+      <ScrollView ref={scrollRef} style={styles.root} contentContainerStyle={styles.content}>
+        <Text style={styles.title}>{editingWorkout ? 'EDIT WORKOUT' : 'LOG WORKOUT'}</Text>
+
+        {/* Editing banner */}
+        {editingWorkout && (
+          <View style={styles.editBanner}>
+            <Text style={styles.editBannerText}>Editing: {editingWorkout.exerciseType}</Text>
+            <TouchableOpacity onPress={handleCancelEdit}>
+              <Text style={styles.editBannerCancel}>CANCEL</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Exercise picker */}
         <View style={styles.exerciseList}>
@@ -125,14 +159,18 @@ export function WorkoutScreen(): React.ReactElement {
             onPress={handleLog}
             disabled={saving}
           >
-            <Text style={styles.btnText}>{saving ? 'SAVING…' : 'LOG WORKOUT'}</Text>
+            <Text style={styles.btnText}>
+              {saving ? 'SAVING…' : editingWorkout ? 'UPDATE WORKOUT' : 'LOG WORKOUT'}
+            </Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.btnOutline}
-            onPress={() => navigation.navigate('Chat')}
-          >
-            <Text style={styles.btnOutlineText}>ASK KENDRICK</Text>
-          </TouchableOpacity>
+          {!editingWorkout && (
+            <TouchableOpacity
+              style={styles.btnOutline}
+              onPress={() => navigation.navigate('Chat')}
+            >
+              <Text style={styles.btnOutlineText}>ASK KENDRICK</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Today's workouts */}
@@ -140,7 +178,7 @@ export function WorkoutScreen(): React.ReactElement {
           <>
             <Text style={[styles.title, { marginTop: SPACING.lg }]}>TODAY'S WORKOUTS</Text>
             {todayWorkouts.map(w => (
-              <View key={w.id} style={styles.workoutCard}>
+              <View key={w.id} style={[styles.workoutCard, editingWorkout?.id === w.id && styles.workoutCardEditing]}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.workoutName}>{w.exerciseType}</Text>
                   <Text style={styles.workoutMeta}>
@@ -150,7 +188,10 @@ export function WorkoutScreen(): React.ReactElement {
                     <Text style={styles.workoutNotes}>{w.notes}</Text>
                   ) : null}
                 </View>
-                <TouchableOpacity onPress={() => handleDelete(w.id!)}>
+                <TouchableOpacity onPress={() => handleEdit(w)} style={styles.iconBtn}>
+                  <Text style={styles.editBtn}>✎</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => handleDelete(w)} style={styles.iconBtn}>
                   <Text style={styles.deleteBtn}>✕</Text>
                 </TouchableOpacity>
               </View>
@@ -243,8 +284,27 @@ const styles = StyleSheet.create({
     padding: SPACING.md,
     marginBottom: SPACING.xs,
   },
+  workoutCardEditing: {
+    borderWidth: 1,
+    borderColor: COLORS.accent,
+  },
   workoutName: { color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 14 },
   workoutMeta: { color: COLORS.accent, fontFamily: FONT.regular, fontSize: 12, marginTop: 2 },
   workoutNotes: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 11, marginTop: 2 },
-  deleteBtn: { color: COLORS.surplus, fontSize: 16, paddingLeft: SPACING.sm },
+  iconBtn: { paddingLeft: SPACING.sm },
+  editBtn: { color: COLORS.accent, fontSize: 16 },
+  deleteBtn: { color: COLORS.surplus, fontSize: 16 },
+  editBanner: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.md,
+    padding: SPACING.sm,
+    marginBottom: SPACING.md,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.accent,
+  },
+  editBannerText: { color: COLORS.textPrimary, fontFamily: FONT.regular, fontSize: 13 },
+  editBannerCancel: { color: COLORS.surplus, fontFamily: FONT.bold, fontSize: 12 },
 });
