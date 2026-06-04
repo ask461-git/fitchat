@@ -99,8 +99,9 @@
 
 import type { DailyLog, MealEntry, WorkoutLog } from '../models';
 import { getTotalIntake, getNetCal } from '../models';
+import { getSetting } from '../database/db';
 
-const SHEETS_URL = process.env.EXPO_PUBLIC_SHEETS_URL ?? '';
+const SETTINGS_KEY = 'sheets_url';
 
 export interface SyncPayload {
   date: string;
@@ -129,8 +130,9 @@ export async function syncDayToSheets(
   mealEntries: MealEntry[],
   workoutLogs: WorkoutLog[],
 ): Promise<void> {
+  const SHEETS_URL = await getSetting(SETTINGS_KEY);
   if (!SHEETS_URL) {
-    console.warn('[sheetsSync] EXPO_PUBLIC_SHEETS_URL not set — skipping sync.');
+    console.warn('[sheetsSync] Sheets URL not configured — skipping sync.');
     return;
   }
 

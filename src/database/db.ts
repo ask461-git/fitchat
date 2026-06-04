@@ -68,6 +68,11 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
       cost_usd REAL NOT NULL DEFAULT 0
     );
 
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL DEFAULT ''
+    );
+
     CREATE INDEX IF NOT EXISTS idx_daily_date        ON daily_logs(date);
     CREATE INDEX IF NOT EXISTS idx_workout_date      ON workout_logs(date);
     CREATE INDEX IF NOT EXISTS idx_chat_date         ON chat_messages(date);
@@ -441,4 +446,25 @@ export async function getApiUsageTotals(): Promise<{
     totalCandidatesTokens: row?.ct ?? 0,
     totalCostUsd: row?.cost ?? 0,
   };
+}
+
+// ---------------------------------------------------------------------------
+// App Settings (key/value store)
+// ---------------------------------------------------------------------------
+
+export async function getSetting(key: string): Promise<string> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ value: string }>(
+    'SELECT value FROM app_settings WHERE key = ?',
+    [key],
+  );
+  return row?.value ?? '';
+}
+
+export async function setSetting(key: string, value: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    'INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
+    [key, value],
+  );
 }

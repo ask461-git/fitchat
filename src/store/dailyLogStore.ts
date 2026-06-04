@@ -26,7 +26,7 @@ function applyMealCal(
   }
 }
 
-interface DailyLogState {
+export interface DailyLogState {
   todayLog: DailyLog | null;
   allLogs: DailyLog[];
   todayWorkouts: WorkoutLog[];

@@ -13,6 +13,7 @@ import {
 import { ACTIVITY_LEVEL_KEYS, type Profile } from '../models';
 import { useProfileStore } from '../store/profileStore';
 import { useDailyLogStore } from '../store/dailyLogStore';
+import type { DailyLogState } from '../store/dailyLogStore';
 import { calculateBmr, calculateTdee } from '../services/bmr';
 import { StatCard } from '../components/StatCard';
 import { Loader } from '../components/Loader';
@@ -21,10 +22,13 @@ import * as db from '../database/db';
 
 export function ProfileScreen(): React.ReactElement {
   const { profile, isLoading, saveProfile } = useProfileStore();
-  const syncToSheets = useDailyLogStore(s => s.syncToSheets);
+  const syncToSheets = useDailyLogStore((s: DailyLogState) => s.syncToSheets);
   const [editing, setEditing] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'ok' | 'err'>('idle');
+  const [sheetsUrl, setSheetsUrl] = useState('');
+  const [sheetsUrlInput, setSheetsUrlInput] = useState('');
+  const [savingUrl, setSavingUrl] = useState(false);
   const [apiUsage, setApiUsage] = useState<{
     totalPromptTokens: number;
     totalCandidatesTokens: number;
@@ -33,6 +37,10 @@ export function ProfileScreen(): React.ReactElement {
 
   useEffect(() => {
     db.getApiUsageTotals().then(setApiUsage);
+    db.getSetting('sheets_url').then(url => {
+      setSheetsUrl(url);
+      setSheetsUrlInput(url);
+    });
   }, []);
 
   if (isLoading || !profile) return <Loader />;
@@ -53,7 +61,15 @@ export function ProfileScreen(): React.ReactElement {
   const bmr = Math.round(calculateBmr(profile));
   const tdee = Math.round(calculateTdee(profile));
 
-  const sheetsConfigured = !!process.env.EXPO_PUBLIC_SHEETS_URL;
+  async function handleSaveUrl() {
+    const trimmed = sheetsUrlInput.trim();
+    setSavingUrl(true);
+    await db.setSetting('sheets_url', trimmed);
+    setSheetsUrl(trimmed);
+    setSavingUrl(false);
+    setSyncStatus('idle');
+    Alert.alert('Saved', trimmed ? 'Sheets URL saved.' : 'Sheets URL cleared.');
+  }
 
   async function handleSyncNow() {
     setSyncing(true);
@@ -95,17 +111,35 @@ export function ProfileScreen(): React.ReactElement {
       <View style={styles.sectionWrap}>
         <Text style={styles.sectionLabel}>GOOGLE SHEETS SYNC</Text>
         <View style={styles.infoCard}>
-          <View style={styles.syncRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.syncLabel}>Auto-syncs today’s data after every change.</Text>
-              {!sheetsConfigured && (
-                <Text style={styles.syncNote}>Set EXPO_PUBLIC_SHEETS_URL in .env to enable.</Text>
-              )}
+          <View style={{ paddingVertical: SPACING.sm }}>
+            <Text style={styles.syncLabel}>Apps Script Web App URL</Text>
+            <View style={styles.urlRow}>
+              <TextInput
+                style={[styles.urlInput, { flex: 1 }]}
+                value={sheetsUrlInput}
+                onChangeText={setSheetsUrlInput}
+                placeholder="https://script.google.com/macros/s/..."
+                placeholderTextColor={COLORS.textSecondary}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="url"
+              />
+              <TouchableOpacity
+                style={[styles.syncBtn, savingUrl && styles.syncBtnDisabled]}
+                onPress={handleSaveUrl}
+                disabled={savingUrl}
+              >
+                <Text style={styles.syncBtnText}>{savingUrl ? 'SAVING…' : 'SAVE'}</Text>
+              </TouchableOpacity>
             </View>
+          </View>
+          <View style={styles.divider} />
+          <View style={styles.syncRow}>
+            <Text style={styles.syncLabel}>Auto-syncs after every change.</Text>
             <TouchableOpacity
-              style={[styles.syncBtn, (!sheetsConfigured || syncing) && styles.syncBtnDisabled]}
+              style={[styles.syncBtn, (!sheetsUrl || syncing) && styles.syncBtnDisabled]}
               onPress={handleSyncNow}
-              disabled={!sheetsConfigured || syncing}
+              disabled={!sheetsUrl || syncing}
             >
               <Text style={styles.syncBtnText}>
                 {syncing ? 'SYNCING…' : syncStatus === 'ok' ? '✓ SYNCED' : syncStatus === 'err' ? '✗ FAILED' : 'SYNC NOW'}
@@ -113,6 +147,7 @@ export function ProfileScreen(): React.ReactElement {
             </TouchableOpacity>
           </View>
         </View>
+      </View>
       </View>
 
       {apiUsage && (
@@ -301,6 +336,23 @@ const styles = StyleSheet.create({
   },
   syncLabel: { color: COLORS.textPrimary, fontFamily: FONT.regular, fontSize: 13 },
   syncNote: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 11, marginTop: 3 },
+  urlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    marginTop: SPACING.xs,
+  },
+  urlInput: {
+    backgroundColor: COLORS.surfaceAlt,
+    color: COLORS.textPrimary,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 9,
+    fontSize: 12,
+    fontFamily: FONT.regular,
+    borderWidth: 1,
+    borderColor: COLORS.divider,
+  },
   syncBtn: {
     backgroundColor: COLORS.accent,
     borderRadius: RADIUS.md,
