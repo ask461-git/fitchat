@@ -16,6 +16,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { WorkoutLog } from '../models';
 import { WORKOUT_TEMPLATES } from '../data/workoutTemplates';
 import { estimateCardioForUser, confirmAndLogCardio } from '../services/cardioFlow';
+import { getAllWorkouts } from '../database/db';
 import type { ExerciseInput } from '../utils/calorieCalculator';
 import { calculateTotalSessionCalories } from '../utils/calorieCalculator';
 import { useProfileStore } from '../store/profileStore';
@@ -183,6 +184,7 @@ export function WorkoutScreen(): React.ReactElement {
             {cardioDraft.estimate != null && (
               <View style={styles.draftCard}>
                 <Text style={styles.draftText}>Draft: {cardioDraft.activity} · {cardioDraft.duration} min · ≈ {cardioDraft.estimate} kcal</Text>
+                {cardioDraft.note ? <Text style={[styles.draftText, { marginTop: SPACING.xs }]}>{cardioDraft.note}</Text> : null}
                 <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.sm }}>
                   <TouchableOpacity style={[styles.btn, { flex: 1 }]} onPress={handleConfirmCardio} disabled={saving}>
                     <Text style={styles.btnText}>{saving ? 'SAVING…' : 'Confirm & Log'}</Text>
@@ -204,9 +206,22 @@ export function WorkoutScreen(): React.ReactElement {
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                       <Text style={styles.workoutName}>{ex.name}</Text>
-                      <TouchableOpacity onPress={() => setHistoryExercise(ex.name)}>
-                        <Text style={{ color: COLORS.accent }}>📈</Text>
-                      </TouchableOpacity>
+                        <TouchableOpacity onPress={async () => {
+                          try {
+                            const all = await getAllWorkouts();
+                            const filtered = all.filter(w => w.exerciseType.toLowerCase().includes(ex.name.toLowerCase()));
+                            const max = filtered.reduce((m, w) => {
+                              const s = w.sets ?? [];
+                              const localMax = s.reduce((mm, ss) => Math.max(mm, ss.weightKg ?? 0), 0);
+                              return Math.max(m, localMax);
+                            }, 0);
+                            console.log(`Max weight for ${ex.name}: ${max} kg`);
+                          } catch (e) {
+                            console.error('Failed to compute history max for', ex.name, e);
+                          }
+                        }}>
+                          <Text style={{ color: COLORS.accent }}>📈</Text>
+                        </TouchableOpacity>
                     </View>
                     <Text style={styles.workoutNotes}>{ex.plan}</Text>
 

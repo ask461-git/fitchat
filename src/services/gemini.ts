@@ -345,7 +345,19 @@ Return only the JSON object.`;
     body: JSON.stringify({
       system_instruction: { parts: [{ text: 'You are a calculator. Respond ONLY with raw JSON as specified by the user prompt.' }] },
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generation_config: { temperature: 0, max_output_tokens: 200 },
+      generation_config: {
+        temperature: 0,
+        max_output_tokens: 200,
+        response_mime_type: 'application/json',
+        response_schema: {
+          type: 'object',
+          properties: {
+            calories: { type: 'number' },
+            note: { type: 'string' },
+          },
+          required: ['calories', 'note'],
+        },
+      },
     }),
   });
 
@@ -354,53 +366,54 @@ Return only the JSON object.`;
   }
 
   const data: any = await res.json();
-  const parts: any[] = data?.candidates?.[0]?.content?.parts ?? [];
-  let text = parts.map(p => p.text || '').join('\n').trim();
 
-  // Clean the response: strip markdown code fences, language tags, and stray backticks.
-  // Examples to remove: ```json ... ```, ``` ... ```, `json\n{...}`, and inline backticks.
-  try {
-    // Remove fenced code blocks ```...```
-    text = text.replace(/```[\s\S]*?```/g, (m) => {
-      // If the fence contains JSON, return the inner content without fences
-      const inner = m.replace(/```\s*json\s*/i, '').replace(/```/g, '');
-      return inner;
-    });
-    // Remove single backticks
-    text = text.replace(/`/g, '');
-    // Trim any leading/trailing non-json text before the first '{' and after the last '}'
-    const firstBrace = text.indexOf('{');
-    const lastBrace = text.lastIndexOf('}');
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      text = text.slice(firstBrace, lastBrace + 1);
-    }
-  } catch (cleanErr) {
-    console.error('Error cleaning Gemini response:', cleanErr, 'rawParts:', parts);
-  }
+  // Prefer structured response produced by the API when response_mime_type is application/json.
+  // Try several likely locations for the structured object to be present.
+  const candidate = data?.candidates?.[0] ?? {};
+  const structured =
+    candidate?.content?.[0]?.structured ??
+    candidate?.output?.[0]?.content?.structured ??
+    candidate?.structured ??
+    null;
 
-  // Try to parse JSON from the cleaned text.
   let calories = 0;
-  let parsedNote = '';
-  try {
-    const obj = JSON.parse(text);
-    calories = Number(obj.calories) || 0;
-    parsedNote = typeof obj.note === 'string' ? obj.note : '';
-  } catch (parseErr) {
-    console.error('Failed to parse JSON from Gemini response:', parseErr, 'cleanedText:', text);
-    // Safe fallback: if parsing failed, try to extract the first number present
-    const num = text.match(/([0-9]+(\.[0-9]+)?)/);
-    calories = num ? Number(num[1]) : 0;
+  let note = '';
+
+  if (structured && typeof structured === 'object') {
+    calories = Number(structured.calories) || 0;
+    note = typeof structured.note === 'string' ? structured.note : '';
+  } else {
+    // Fall back to attempting to parse the raw text body strictly with JSON.parse.
+    const parts: any[] = data?.candidates?.[0]?.content?.parts ?? [];
+    let text = parts.map(p => p.text || '').join('\n').trim();
+
+    // If the model wrapped the JSON with surrounding text, attempt to isolate the first {...} block using indexOf (no regex).
+    const first = text.indexOf('{');
+    const last = text.lastIndexOf('}');
+    if (first !== -1 && last !== -1 && last > first) {
+      text = text.slice(first, last + 1);
+    }
+
+    try {
+      const obj = JSON.parse(text);
+      calories = Number(obj.calories) || 0;
+      note = typeof obj.note === 'string' ? obj.note : '';
+    } catch (parseErr) {
+      console.error('Failed to parse Gemini JSON response:', parseErr, 'rawText:', text, 'rawResponse:', data);
+      calories = 0;
+      note = '';
+    }
   }
 
-  // If the parsed calories are missing or implausibly low (<=1), compute a safe fallback using a simple heuristic.
+  // Safe fallback if parsed value is missing or implausible.
   if (!calories || calories <= 1) {
     const fallback = Math.max(1, Math.round(durationMinutes * 8)); // e.g., 15min -> 120 kcal
-    console.error(`Gemini returned implausible calories (${calories}). Using fallback estimate: ${fallback} kcal. cleanedText:`, text);
+    console.error(`Gemini returned implausible calories (${calories}). Using fallback estimate: ${fallback} kcal. structured:`, structured ?? data);
     calories = fallback;
-    parsedNote = parsedNote || 'fallback estimate due to parse or implausible value';
+    note = note || 'fallback estimate due to parse or implausible value';
   }
 
-  return { calories, text: parsedNote || text };
+  return { calories, text: note || JSON.stringify(structured ?? {}) };
 }
 
 // Quick heuristic estimator for macros when not provided (grams).
