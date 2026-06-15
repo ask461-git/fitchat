@@ -320,6 +320,60 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
   };
 }
 
+// Estimate cardio/calorie burn for a single activity using Gemini.
+export async function estimateCardio(params: {
+  activity: string;
+  intensity?: number | string;
+  durationMinutes: number;
+  weightKg: number;
+}): Promise<{ calories: number; text: string }> {
+  const { activity, intensity, durationMinutes, weightKg } = params;
+  const prompt = `Estimate calories burned for the following activity.
+Activity: ${activity}
+Intensity/Incline/Resistance: ${intensity ?? 'N/A'}
+Duration (minutes): ${durationMinutes}
+Weight (kg): ${weightKg}
+
+Answer with a single JSON object exactly like: {"calories": 123.45, "note": "brief explanation"}`;
+
+  const res = await fetch(`${BASE_URL}?key=${API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system_instruction: { parts: [{ text: 'You are a precise exercise physiologist. Answer concisely.' }] },
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generation_config: { temperature: 0, max_output_tokens: 200 },
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Gemini API error ${res.status}`);
+  }
+
+  const data: any = await res.json();
+  const parts: any[] = data?.candidates?.[0]?.content?.parts ?? [];
+  const text = parts.map(p => p.text || '').join('\n').trim();
+
+  // Try to parse JSON from the response text.
+  let calories = 0;
+  try {
+    const m = text.match(/\{[\s\S]*\}/);
+    if (m) {
+      const obj = JSON.parse(m[0]);
+      calories = Number(obj.calories) || 0;
+    } else {
+      // Fallback: extract first number
+      const num = text.match(/([0-9]+(\.[0-9]+)?)/);
+      calories = num ? Number(num[1]) : 0;
+    }
+  } catch (e) {
+    const num = text.match(/([0-9]+(\.[0-9]+)?)/);
+    calories = num ? Number(num[1]) : 0;
+  }
+
+  return { calories, text };
+}
+
 // Quick heuristic estimator for macros when not provided (grams).
 export function estimateMacros(calories: number) {
   // Default split: P 20%, F 30%, C 45%, Fiber 5% of calories.

@@ -14,6 +14,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { EXERCISE_KEYS, estimateWorkoutCalories, type WorkoutLog } from '../models';
+import { estimateCardio } from '../services/gemini';
 import { useProfileStore } from '../store/profileStore';
 import { useDailyLogStore } from '../store/dailyLogStore';
 import { Loader } from '../components/Loader';
@@ -32,6 +33,12 @@ export function WorkoutScreen(): React.ReactElement {
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [editingWorkout, setEditingWorkout] = useState<WorkoutLog | null>(null);
+  // Cardio inputs
+  const [cardioActivity, setCardioActivity] = useState('');
+  const [cardioIntensity, setCardioIntensity] = useState('');
+  const [cardioDuration, setCardioDuration] = useState('');
+  const [cardioEstimate, setCardioEstimate] = useState<number | null>(null);
+  const [cardioEstimateText, setCardioEstimateText] = useState('');
   const scrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
@@ -76,6 +83,22 @@ export function WorkoutScreen(): React.ReactElement {
   }
 
   async function handleLog() {
+    // Cardio logging
+    if (exercise === 'Cardio') {
+      if (!cardioDuration || !cardioEstimate) return Alert.alert('Required', 'Estimate cardio first.');
+      setSaving(true);
+      await addWorkout({
+        date: dayjs().format('YYYY-MM-DD'),
+        exerciseType: `Cardio - ${cardioActivity || 'Cardio'}`,
+        durationMinutes: parseInt(cardioDuration, 10) || 0,
+        caloriesBurned: cardioEstimate || 0,
+        notes: `Intensity ${cardioIntensity || ''}`.trim(),
+      });
+      setCardioActivity(''); setCardioIntensity(''); setCardioDuration(''); setCardioEstimate(null); setCardioEstimateText('');
+      setSaving(false);
+      return;
+    }
+
     if (durationN < 1) return Alert.alert('Required', 'Enter duration in minutes.');
     setSaving(true);
     if (editingWorkout) {
@@ -140,18 +163,66 @@ export function WorkoutScreen(): React.ReactElement {
               </Text>
             </TouchableOpacity>
           ))}
+          <TouchableOpacity
+            key="Cardio"
+            style={[styles.exBtn, exercise === 'Cardio' && styles.exBtnActive]}
+            onPress={() => setExercise('Cardio')}
+          >
+            <Text style={[styles.exBtnText, exercise === 'Cardio' && styles.exBtnTextActive]}>Cardio</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Duration */}
-        <Text style={styles.fieldLabel}>DURATION (minutes)</Text>
-        <TextInput
-          style={styles.input}
-          value={duration}
-          onChangeText={setDuration}
-          keyboardType="number-pad"
-          placeholder="30"
-          placeholderTextColor={COLORS.textSecondary}
-        />
+        {/* Cardio inputs (when Cardio selected) */}
+        {exercise === 'Cardio' ? (
+          <>
+            <Text style={styles.fieldLabel}>ACTIVITY</Text>
+            <TextInput style={styles.input} value={cardioActivity} onChangeText={setCardioActivity} placeholder="Elliptical" placeholderTextColor={COLORS.textSecondary} />
+            <Text style={styles.fieldLabel}>INTENSITY / RESISTANCE</Text>
+            <TextInput style={styles.input} value={cardioIntensity} onChangeText={setCardioIntensity} keyboardType="number-pad" placeholder="eg. 25" placeholderTextColor={COLORS.textSecondary} />
+            <Text style={styles.fieldLabel}>DURATION (minutes)</Text>
+            <TextInput style={styles.input} value={cardioDuration} onChangeText={setCardioDuration} keyboardType="number-pad" placeholder="25" placeholderTextColor={COLORS.textSecondary} />
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <TouchableOpacity
+                style={[styles.btn, !(cardioActivity && cardioDuration) && styles.btnDisabled]}
+                onPress={async () => {
+                  if (!cardioActivity || !cardioDuration) return;
+                  try {
+                    const dur = parseInt(cardioDuration, 10) || 0;
+                    const intensityVal = cardioIntensity ? Number(cardioIntensity) : undefined;
+                    const res = await estimateCardio({ activity: cardioActivity, intensity: intensityVal, durationMinutes: dur, weightKg: profile.currentWeightKg });
+                    setCardioEstimate(Math.round(res.calories));
+                    setCardioEstimateText(res.text);
+                  } catch (e) {
+                    Alert.alert('Estimate failed', String(e));
+                  }
+                }}
+              >
+                <Text style={styles.btnText}>Estimate via Gemini</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.btnOutline} onPress={() => { setCardioActivity(''); setCardioIntensity(''); setCardioDuration(''); setCardioEstimate(null); setCardioEstimateText(''); }}>
+                <Text style={styles.btnOutlineText}>Clear</Text>
+              </TouchableOpacity>
+            </View>
+            {cardioEstimate != null && (
+              <View style={styles.estimateRow}>
+                <Text style={styles.estimateText}>≈ {cardioEstimate} kcal — {cardioEstimateText}</Text>
+              </View>
+            )}
+          </>
+        ) : (
+          <>
+            {/* Duration */}
+            <Text style={styles.fieldLabel}>DURATION (minutes)</Text>
+            <TextInput
+              style={styles.input}
+              value={duration}
+              onChangeText={setDuration}
+              keyboardType="number-pad"
+              placeholder="30"
+              placeholderTextColor={COLORS.textSecondary}
+            />
+          </>
+        )}
 
         {/* Estimate */}
         {durationN > 0 && (
