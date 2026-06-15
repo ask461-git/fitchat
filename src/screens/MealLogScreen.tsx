@@ -12,11 +12,15 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import dayjs from 'dayjs';
+
+// Stores and Services
 import { useDailyLogStore } from '../store/dailyLogStore';
 import { useProfileStore } from '../store/profileStore';
 import { calculateTdee } from '../services/bmr';
 import * as db from '../database/db';
-import type { MealEntry, WorkoutLog } from '../models';
+
+// Models and Theme
+import type { MealEntry } from '../models';
 import { getTotalIntake } from '../models';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme/theme';
 import type { RootStackParamList } from '../navigation/AppNavigator';
@@ -25,10 +29,20 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 const MEAL_CATEGORIES = ['Breakfast', 'Morning Snack', 'Lunch', 'Evening Snack', 'Dinner'];
 
+// Helper Component for Summary Rows
+function Row({ label, value, valueColor = COLORS.textPrimary, bold = false }: any) {
+  return (
+    <View style={styles.row}>
+      <Text style={[styles.rowLabel, bold && { color: COLORS.textPrimary, fontFamily: FONT.bold }]}>{label}</Text>
+      <Text style={[styles.rowValue, { color: valueColor }, bold && { fontSize: 16 }]}>{value}</Text>
+    </View>
+  );
+}
+
 export function MealLogScreen(): React.ReactElement {
   const navigation = useNavigation<Nav>();
   const { profile } = useProfileStore();
-  const { todayLog, allLogs, loadTodayLog, loadAllLogs } = useDailyLogStore();
+  const { todayLog, allLogs, loadTodayLog, loadAllLogs, updateDailyLog } = useDailyLogStore();
   
   const [todayEntries, setTodayEntries] = useState<MealEntry[]>([]);
   const [editCat, setEditCat] = useState<string | null>(null);
@@ -45,7 +59,7 @@ export function MealLogScreen(): React.ReactElement {
       setTodayEntries(entries);
     }
     fetchEntries();
-  }, [loadTodayLog, loadAllLogs]);
+  }, [loadTodayLog, loadAllLogs, todayStr]);
 
   // Compute clean totals
   const totalIn = todayLog ? getTotalIntake(todayLog) : 0;
@@ -57,7 +71,7 @@ export function MealLogScreen(): React.ReactElement {
   const netColor = isDeficit ? COLORS.accent : COLORS.error;
 
   const recentLogs = useMemo(() => {
-    const logs: any[] = [];
+    const logs = [];
     for (let i = 1; i <= 7; i++) {
       const dateStr = dayjs().subtract(i, 'day').format('YYYY-MM-DD');
       const found = allLogs.find(l => l.date === dateStr);
@@ -79,7 +93,8 @@ export function MealLogScreen(): React.ReactElement {
   }
 
   async function setMealCalories(cat: string, val: number) {
-    const updated = { ...todayLog } as any;
+    if (!todayLog) return;
+    const updated = { ...todayLog };
     switch (cat) {
       case 'Breakfast': updated.breakfastCal = val; break;
       case 'Morning Snack': updated.morningSnackCal = val; break;
@@ -87,8 +102,7 @@ export function MealLogScreen(): React.ReactElement {
       case 'Evening Snack': updated.eveningSnackCal = val; break;
       case 'Dinner': updated.dinnerCal = val; break;
     }
-    const store = useDailyLogStore.getState();
-    await store.updateDailyLog(updated as any);
+    await updateDailyLog(updated as any);
   }
 
   function openEdit(cat: string) {
@@ -216,7 +230,11 @@ export function MealLogScreen(): React.ReactElement {
 
               return (
                 <View key={log.date || idx}>
-                  <View style={styles.historyRow}>
+                  <TouchableOpacity
+                    style={styles.historyRow}
+                    onPress={() => navigation.navigate('DayDetail', { date: log.date })}
+                    activeOpacity={0.7}
+                  >
                     <View style={{ flex: 1 }}>
                       <Text style={styles.historyDate}>{dayjs(log.date).format('ddd, MMM D')}</Text>
                       <Text style={styles.historyBurned}>
@@ -229,7 +247,7 @@ export function MealLogScreen(): React.ReactElement {
                         {dayNet <= 0 ? `${Math.abs(dayNet)} deficit` : `+${dayNet} surplus`}
                       </Text>
                     </View>
-                  </View>
+                  </TouchableOpacity>
                   {!isLast && <View style={styles.divider} />}
                 </View>
               );
@@ -260,319 +278,6 @@ export function MealLogScreen(): React.ReactElement {
         </TouchableOpacity>
       </Modal>
     </ScrollView>
-  );
-}
-
-function Row({ label, value, valueColor = COLORS.textPrimary, bold = false }: any) {
-  return (
-    <View style={styles.row}>
-      <Text style={[styles.rowLabel, bold && { color: COLORS.textPrimary, fontFamily: FONT.bold }]}>{label}</Text>
-      <Text style={[styles.rowValue, { color: valueColor }, bold && { fontSize: 16 }]}>{value}</Text>
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: COLORS.background },
-  content: { padding: SPACING.md, paddingBottom: SPACING.xl },
-  title: { color: COLORS.textSecondary, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.8, marginBottom: SPACING.sm },
-  summaryCard: { backgroundColor: COLORS.surface, borderRadius: RADIUS.lg, padding: SPACING.md },
-  row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: SPACING.sm },
-  rowLabel: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 14 },
-  rowValue: { fontFamily: FONT.bold, fontSize: 14 },
-  divider: { height: 1, backgroundColor: COLORS.divider },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
-  modalCard: { backgroundColor: COLORS.surface, borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, padding: SPACING.lg, paddingBottom: SPACING.xl * 2 },
-  modalTitle: { color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 18, marginBottom: SPACING.md },
-  modalInput: { backgroundColor: COLORS.surfaceAlt, color: COLORS.textPrimary, borderRadius: RADIUS.md, paddingHorizontal: SPACING.md, paddingVertical: 12, fontSize: 28, fontFamily: FONT.bold, borderWidth: 1, borderColor: COLORS.accent, textAlign: 'center', marginBottom: SPACING.xs },
-  modalHint: { color: COLORS.textSecondary, fontSize: 12, fontFamily: FONT.regular, textAlign: 'center', marginBottom: SPACING.lg },
-  modalBtn: { backgroundColor: COLORS.accent, borderRadius: RADIUS.md, paddingVertical: 14, alignItems: 'center' },
-  modalBtnText: { color: COLORS.black, fontFamily: FONT.bold, fontSize: 15 },
-  dishList: { backgroundColor: COLORS.surfaceAlt, borderRadius: RADIUS.md, paddingHorizontal: SPACING.md, paddingVertical: SPACING.xs, marginBottom: SPACING.xs },
-  dishRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: SPACING.sm },
-  dishDesc: { color: COLORS.textPrimary, fontFamily: FONT.regular, fontSize: 13, flex: 1, paddingRight: SPACING.sm },
-  dishKcal: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 13 },
-  dishMacro: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 11, marginTop: 2 },
-  dishDelete: { color: '#ff6b6b', fontSize: 14, paddingLeft: SPACING.sm },
-  historyCard: { backgroundColor: COLORS.surface, borderRadius: RADIUS.lg, paddingHorizontal: SPACING.md },
-  historyRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: SPACING.sm },
-  historyDate: { color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 13 },
-  historyBurned: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 11, marginTop: 2 },
-  historyRight: { alignItems: 'flex-end' },
-  historyTotal: { color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 13 },
-  historyNet: { fontFamily: FONT.regular, fontSize: 11, marginTop: 2 },
-});
-import React, { useEffect, useState, useMemo } from 'react';
-import {
-  Alert,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import dayjs from 'dayjs';
-import { useDailyLogStore } from '../store/dailyLogStore';
-import { useProfileStore } from '../store/profileStore';
-import { calculateTdee } from '../services/bmr';
-import * as db from '../database/db';
-import type { MealEntry, WorkoutLog } from '../models';
-import { getTotalIntake } from '../models';
-import { COLORS, FONT, RADIUS, SPACING } from '../theme/theme';
-import type { RootStackParamList } from '../navigation/AppNavigator';
-
-type Nav = NativeStackNavigationProp<RootStackParamList>;
-
-const MEAL_CATEGORIES = ['Breakfast', 'Morning Snack', 'Lunch', 'Evening Snack', 'Dinner'];
-
-export function MealLogScreen(): React.ReactElement {
-  const navigation = useNavigation<Nav>();
-  const { profile } = useProfileStore();
-  const { todayLog, allLogs, loadTodayLog, loadAllLogs } = useDailyLogStore();
-  
-  const [todayEntries, setTodayEntries] = useState<MealEntry[]>([]);
-  const [editCat, setEditCat] = useState<string | null>(null);
-  const [editVal, setEditVal] = useState('');
-  
-  const todayStr = dayjs().format('YYYY-MM-DD');
-  const tdee = profile ? Math.round(calculateTdee(profile)) : 2000;
-
-  useEffect(() => {
-    loadTodayLog();
-    loadAllLogs();
-    async function fetchEntries() {
-      const entries = await db.getMealEntriesForDate(todayStr);
-      setTodayEntries(entries);
-    }
-    fetchEntries();
-  }, [loadTodayLog, loadAllLogs]);
-
-  // Compute clean totals
-  const totalIn = todayLog ? getTotalIntake(todayLog) : 0;
-  const burned = todayLog?.workoutCalBurned || 0;
-  
-  // TDEE-Aware Correct Math Formula
-  const netCaloriesBalance = totalIn - (tdee + burned);
-  const isDeficit = netCaloriesBalance <= 0;
-  const netColor = isDeficit ? COLORS.accent : COLORS.error;
-
-  const recentLogs = useMemo(() => {
-    const logs = [] as any[];
-    for (let i = 1; i <= 7; i++) {
-      const dateStr = dayjs().subtract(i, 'day').format('YYYY-MM-DD');
-      const found = allLogs.find((l: any) => l.date === dateStr);
-      if (found) logs.push(found);
-    }
-    return logs;
-  }, [allLogs]);
-
-  function getMealCal(log: any, cat: string): number {
-    if (!log) return 0;
-    switch (cat) {
-      case 'Breakfast': return log.breakfastCal || 0;
-      case 'Morning Snack': return log.morningSnackCal || 0;
-      case 'Lunch': return log.lunchCal || 0;
-      case 'Evening Snack': return log.eveningSnackCal || 0;
-      case 'Dinner': return log.dinnerCal || 0;
-      default: return 0;
-    }
-  }
-
-  async function setMealCalories(cat: string, val: number) {
-    const updated = { ...todayLog } as any;
-    switch (cat) {
-      case 'Breakfast': updated.breakfastCal = val; break;
-      case 'Morning Snack': updated.morningSnackCal = val; break;
-      case 'Lunch': updated.lunchCal = val; break;
-      case 'Evening Snack': updated.eveningSnackCal = val; break;
-      case 'Dinner': updated.dinnerCal = val; break;
-    }
-    const store = useDailyLogStore.getState();
-    await store.updateDailyLog(updated as any);
-  }
-
-  function openEdit(cat: string) {
-    setEditCat(cat);
-    setEditVal(String(getMealCal(todayLog, cat) || ''));
-  }
-
-  async function confirmEdit() {
-    if (!editCat || !profile) return;
-    const val = parseInt(editVal, 10) || 0;
-    if (val < 0) return Alert.alert('Invalid', 'Enter a number ≥ 0.');
-
-    const toRemove = todayEntries.filter(e => e.category === editCat);
-    for (const e of toRemove) {
-      if (e.id) await db.deleteMealEntry(e.id);
-    }
-    
-    let kept = todayEntries.filter(e => e.category !== editCat);
-    if (val > 0) {
-      const newEntry = await db.insertMealEntry({
-        date: todayStr,
-        category: editCat,
-        foodDescription: 'Manual entry',
-        calories: val,
-      });
-      kept = [...kept, newEntry];
-    }
-    setTodayEntries(kept);
-    await setMealCalories(editCat, val);
-    setEditCat(null);
-  }
-
-  async function handleDeleteEntry(entry: MealEntry) {
-    Alert.alert('Delete entry?', entry.foodDescription, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          if (entry.id) {
-            await db.deleteMealEntry(entry.id);
-            const currentCal = getMealCal(todayLog, entry.category) - (entry.calories || 0);
-            await setMealCalories(entry.category, Math.max(0, currentCal));
-            const updated = await db.getMealEntriesForDate(todayStr);
-            setTodayEntries(updated);
-            await loadTodayLog();
-          }
-        },
-      },
-    ]);
-  }
-
-  if (!profile || !todayLog) return null;
-
-  return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>TODAY'S MEALS</Text>
-
-      {MEAL_CATEGORIES.map(cat => {
-        const catEntries = todayEntries.filter(e => e.category === cat);
-        return (
-          <View key={cat}>
-            <TouchableOpacity 
-              style={{ flexDirection: 'row', justifyContent: 'space-between', backgroundColor: COLORS.surface, padding: SPACING.md, borderRadius: RADIUS.md, marginBottom: SPACING.xs }}
-              onPress={() => openEdit(cat)}
-            >
-              <Text style={{ color: COLORS.textPrimary, fontFamily: FONT.bold }}>{cat.toUpperCase()}</Text>
-              <Text style={{ color: COLORS.accent, fontFamily: FONT.bold }}>{getMealCal(todayLog, cat)} kcal</Text>
-            </TouchableOpacity>
-            
-            {catEntries.length > 0 && (
-              <View style={styles.dishList}>
-                {catEntries.map(e => (
-                  <View key={e.id} style={styles.dishRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.dishDesc}>{e.foodDescription}</Text>
-                      <Text style={styles.dishMacro}>{`P ${Math.round(e.protein ?? 0)}g · F ${Math.round(e.fat ?? 0)}g · C ${Math.round(e.carbs ?? 0)}g · Fib ${Math.round(e.fiber ?? 0)}g`}</Text>
-                    </View>
-                    <Text style={styles.dishKcal}>{e.calories} kcal</Text>
-                    <TouchableOpacity onPress={() => handleDeleteEntry(e)}>
-                      <Text style={styles.dishDelete}>✕</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </View>
-            )}
-          </View>
-        );
-      })}
-
-      {/* Summary Card */}
-      <Text style={[styles.title, { marginTop: SPACING.lg }]}>SUMMARY</Text>
-      <View style={styles.summaryCard}>
-        <Row label="Total Intake" value={`${totalIn} kcal`} />
-        <View style={styles.divider} />
-        <Row label="Workout Burned" value={`-${burned} kcal`} />
-        <View style={styles.divider} />
-        <Row
-          label="Net Calories"
-          value={isDeficit ? `${Math.abs(netCaloriesBalance)} deficit` : `+${netCaloriesBalance} surplus`}
-          valueColor={netColor}
-          bold
-        />
-        <View style={styles.divider} />
-        <Row label="Protein" value={`${Math.round(todayLog.proteinTotal ?? 0)} g`} />
-        <View style={styles.divider} />
-        <Row label="Fat" value={`${Math.round(todayLog.fatTotal ?? 0)} g`} />
-        <View style={styles.divider} />
-        <Row label="Carbs" value={`${Math.round(todayLog.carbsTotal ?? 0)} g`} />
-        <View style={styles.divider} />
-        <Row label="Fiber" value={`${Math.round(todayLog.fiberTotal ?? 0)} g`} />
-      </View>
-
-      {/* History Area */}
-      {recentLogs.length > 0 && (
-        <>
-          <Text style={[styles.title, { marginTop: SPACING.lg }]}>LAST 7 DAYS</Text>
-          <View style={styles.historyCard}>
-            {recentLogs.map((log, idx) => {
-              const dayTotal = getTotalIntake(log);
-              const dayTdee = log.tdeeSnapshot && log.tdeeSnapshot > 0 ? Math.round(log.tdeeSnapshot) : tdee;
-              const dayNet = dayTotal - (dayTdee + (log.workoutCalBurned || 0));
-              const dayNetColor = dayNet <= 0 ? COLORS.accent : COLORS.error;
-              const isLast = idx === recentLogs.length - 1;
-
-              return (
-                <View key={log.date || idx}>
-                  <View style={styles.historyRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.historyDate}>{dayjs(log.date).format('ddd, MMM D')}</Text>
-                      <Text style={styles.historyBurned}>
-                        {log.workoutCalBurned > 0 ? `–${log.workoutCalBurned} kcal burned` : 'No workout'}
-                      </Text>
-                    </View>
-                    <View style={styles.historyRight}>
-                      <Text style={styles.historyTotal}>{dayTotal} kcal</Text>
-                      <Text style={[styles.historyNet, { color: dayNetColor }]}>
-                        {dayNet <= 0 ? `${Math.abs(dayNet)} deficit` : `+${dayNet} surplus`}
-                      </Text>
-                    </View>
-                  </View>
-                  {!isLast && <View style={styles.divider} />}
-                </View>
-              );
-            })}
-          </View>
-        </>
-      )}
-
-      {/* Edit modal */}
-      <Modal visible={editCat !== null} transparent animationType="slide" onRequestClose={() => setEditCat(null)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setEditCat(null)}>
-          <TouchableOpacity activeOpacity={1} style={styles.modalCard}>
-            <Text style={styles.modalTitle}>{editCat}</Text>
-            <TextInput
-              style={styles.modalInput}
-              value={editVal}
-              onChangeText={setEditVal}
-              keyboardType="number-pad"
-              placeholder="0"
-              placeholderTextColor={COLORS.textSecondary}
-              autoFocus
-            />
-            <Text style={styles.modalHint}>Enter calories (kcal)</Text>
-            <TouchableOpacity style={styles.modalBtn} onPress={confirmEdit}>
-              <Text style={styles.modalBtnText}>SAVE</Text>
-            </TouchableOpacity>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
-    </ScrollView>
-  );
-}
-
-function Row({ label, value, valueColor = COLORS.textPrimary, bold = false }: any) {
-  return (
-    <View style={styles.row}>
-      <Text style={[styles.rowLabel, bold && { color: COLORS.textPrimary, fontFamily: FONT.bold }]}>{label}</Text>
-      <Text style={[styles.rowValue, { color: valueColor }, bold && { fontSize: 16 }]}>{value}</Text>
-    </View>
   );
 }
 
