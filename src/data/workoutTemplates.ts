@@ -14,7 +14,7 @@ export interface DayTemplate {
 
 export const WORKOUT_TEMPLATES: DayTemplate[] = [
   {
-    dayName: "Monday - Push Day",
+    dayName: "Push Day (Chest / Shoulders / Triceps)",
     exercises: [
       { name: "Pushups", plan: "2 Sets * Max", targetSets: 2, defaultMetActive: 5.0, defaultMetRest: 2.5, hasPlates: false },
       { name: "Barbell Bench Press", plan: "3 Sets * 8", targetSets: 3, defaultMetActive: 6.0, defaultMetRest: 2.5, hasPlates: true },
@@ -25,7 +25,7 @@ export const WORKOUT_TEMPLATES: DayTemplate[] = [
     ]
   },
   {
-    dayName: "Tuesday - Pull Day",
+    dayName: "Pull Day (Back / Rear Delts / Biceps)",
     exercises: [
       { name: "Assisted Pull-ups", plan: "3 Sets * 8/10", targetSets: 3, defaultMetActive: 5.0, defaultMetRest: 2.5, hasPlates: false },
       { name: "Seated Cable Rows", plan: "3 Sets * 10", targetSets: 3, defaultMetActive: 6.0, defaultMetRest: 2.5, hasPlates: false },
@@ -36,11 +36,13 @@ export const WORKOUT_TEMPLATES: DayTemplate[] = [
     ]
   },
   {
-    dayName: "Wednesday - Cardio Day",
-    exercises: []
+    dayName: "Cardio Day (Activity / Intensity / Duration)",
+    exercises: [
+      { name: "Cardio Session (interactive)", plan: "Activity / Intensity / Duration", targetSets: 1, defaultMetActive: 4.0, defaultMetRest: 2.0, hasPlates: false }
+    ]
   },
   {
-    dayName: "Thursday - Legs & Core Day",
+    dayName: "Legs & Core Day",
     exercises: [
       { name: "Machine Squats", plan: "3 Sets * 8/10", targetSets: 3, defaultMetActive: 6.0, defaultMetRest: 3.0, hasPlates: true },
       { name: "Barbell Squat with Long Bar", plan: "3 Sets * 8/10", targetSets: 3, defaultMetActive: 7.0, defaultMetRest: 3.5, hasPlates: true },
@@ -51,7 +53,7 @@ export const WORKOUT_TEMPLATES: DayTemplate[] = [
     ]
   },
   {
-    dayName: "Friday - Hypertrophy Upper Split",
+    dayName: "Hypertrophy Upper Split",
     exercises: [
       { name: "Dumbbell Bench Press", plan: "3 Sets * 10", targetSets: 3, defaultMetActive: 5.0, defaultMetRest: 2.5, hasPlates: false },
       { name: "Incline Rows", plan: "3 Sets * 10", targetSets: 3, defaultMetActive: 6.0, defaultMetRest: 2.5, hasPlates: false },
