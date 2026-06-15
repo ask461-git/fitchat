@@ -94,6 +94,7 @@ export function WorkoutScreen(): React.ReactElement {
 
   async function handleEstimateCardio() {
     if (!cardioDraft.activity || !cardioDraft.duration) return Alert.alert('Missing fields', 'Provide activity and duration.');
+    if (!profile) return Alert.alert('Error', 'Profile not loaded.');
     setIsEstimating(true);
     try {
       const dur = Number(cardioDraft.duration || 0);
@@ -119,13 +120,16 @@ export function WorkoutScreen(): React.ReactElement {
     };
   });
   const totalSessionMinutes = liftingInputs.reduce((s, it) => s + it.durationActive + it.durationRest, 0);
-  const liftingCalc = calculateTotalSessionCalories(liftingInputs, totalSessionMinutes, profile.currentWeightKg);
+  
+  // FIXED: Fallback to 0 if profile is mysteriously null
+  const liftingCalc = calculateTotalSessionCalories(liftingInputs, totalSessionMinutes, profile?.currentWeightKg || 0);
 
   // Running total: logged workouts + draft estimate (cardio or lifting)
   const loggedTotal = (todayWorkouts ?? []).reduce((s, w) => s + (w.caloriesBurned || 0), 0);
   const draftTotal = selectedTemplate.dayName.includes('Cardio') ? (cardioDraft.estimate || 0) : liftingCalc.grandTotal;
 
   async function handleLogLiftingSession() {
+    if (!profile) return Alert.alert('Error', 'Profile not loaded.');
     setSaving(true);
     try {
       // For each exercise in the template, construct a WorkoutLog and persist
@@ -324,6 +328,32 @@ export function WorkoutScreen(): React.ReactElement {
             ))}
           </>
         )}
+        
+        {/* Restored Last 7 Days Workout UI */}
+        {recentLogs.length > 0 && (
+          <>
+            <Text style={[styles.title, { marginTop: SPACING.lg }]}>LAST 7 DAYS</Text>
+            <View style={{ backgroundColor: COLORS.surface, borderRadius: RADIUS.lg, padding: SPACING.md }}>
+              {recentLogs.map((log, idx) => {
+                const isLast = idx === recentLogs.length - 1;
+                return (
+                  <View key={log.date}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: SPACING.sm }}>
+                      <Text style={{ color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 13 }}>
+                        {dayjs(log.date).format('ddd, MMM D')}
+                      </Text>
+                      <Text style={{ color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 12 }}>
+                        {log.workoutCalBurned > 0 ? `–${log.workoutCalBurned} kcal burned` : 'No workouts'}
+                      </Text>
+                    </View>
+                    {!isLast && <View style={{ height: 1, backgroundColor: COLORS.divider }} />}
+                  </View>
+                );
+              })}
+            </View>
+          </>
+        )}
+        
       </ScrollView>
 
       {/* Sticky footer with running total */}

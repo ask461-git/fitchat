@@ -77,7 +77,9 @@ export function MealLogScreen(): React.ReactElement {
   // TDEE-Aware Correct Math Formula
   const netCaloriesBalance = totalIn - (tdee + burned);
   const isDeficit = netCaloriesBalance <= 0;
-  const netColor = isDeficit ? COLORS.accent : COLORS.error;
+  
+  // FIXED: Using your actual theme colors for deficit and surplus
+  const netColor = isDeficit ? COLORS.deficit : COLORS.surplus;
 
   const recentLogs = useMemo(() => {
     const logs = [];
@@ -153,7 +155,8 @@ export function MealLogScreen(): React.ReactElement {
     ]);
   }
 
-  if (!profile || !todayLog) return null;
+  // FIXED: Return an empty View instead of null to satisfy React.ReactElement
+  if (!profile || !todayLog) return <View style={styles.root} />;
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
@@ -223,7 +226,9 @@ export function MealLogScreen(): React.ReactElement {
               const dayTotal = getTotalIntake(log);
               const dayTdee = log.tdeeSnapshot && log.tdeeSnapshot > 0 ? Math.round(log.tdeeSnapshot) : tdee;
               const dayNet = dayTotal - (dayTdee + (log.workoutCalBurned || 0));
-              const dayNetColor = dayNet <= 0 ? COLORS.accent : COLORS.error;
+              
+              // FIXED: Matching the theme deficit/surplus colors here too
+              const dayNetColor = dayNet <= 0 ? COLORS.deficit : COLORS.surplus;
               const isLast = idx === recentLogs.length - 1;
 
               return (
