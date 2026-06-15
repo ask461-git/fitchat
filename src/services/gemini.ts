@@ -336,14 +336,16 @@ export async function estimateCardio(params: {
 Activity: ${activity}
 Intensity/Incline/Resistance: ${intensity ?? 'N/A'}
 Duration (minutes): ${durationMinutes}
-${distanceLine}Weight (kg): ${weightKg}`;
+${distanceLine}Weight (kg): ${weightKg}
+
+CRITICAL: Do NOT use a generic or baseline MET. You must dynamically calculate and adjust the MET multiplier based on the user's specific speed (distance over duration) and the exact intensity/resistance level provided. High resistance or fast pacing must result in a significantly higher MET.`;
 
   try {
     const res = await fetch(`${BASE_URL}?key=${API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: 'You are an exact calorie calculator. Use standard MET formulas. You must return only valid JSON.' }] },
+        systemInstruction: { parts: [{ text: 'You are an advanced sports science calculator. You dynamically adjust MET values based on specific resistance, distance, and pacing inputs rather than relying on generic averages. You must return only valid JSON.' }] },
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         generationConfig: {
           temperature: 0.1,
