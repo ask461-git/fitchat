@@ -34,10 +34,10 @@ export function HomeScreen(): React.ReactElement {
   const tdee = Math.round(calculateTdee(profile));
   const totalIn = getTotalIntake(todayLog);
   const burned = todayLog.workoutCalBurned;
-  const netBalance = totalIn - (tdee + burned);
-  const netColor = netBalance <= 0 ? COLORS.deficit : COLORS.surplus;
-  const netLabel = netBalance <= 0 ? 'CALORIE DEFICIT' : 'CALORIE SURPLUS';
-  const netAbs = Math.abs(netBalance);
+  const dailyNetBalance = totalIn - (tdee + burned);
+  const netColor = dailyNetBalance <= 0 ? COLORS.deficit : COLORS.surplus;
+  const netLabel = dailyNetBalance <= 0 ? 'CALORIE DEFICIT' : 'CALORIE SURPLUS';
+  const netAbs = Math.abs(dailyNetBalance);
   const accumulated = accumulatedDeficit(allLogs);
   const eta = etaDate(profile.currentWeightKg, profile.targetWeightKg, allLogs);
   const kgLeft = (profile.currentWeightKg - profile.targetWeightKg).toFixed(1);
@@ -50,12 +50,12 @@ export function HomeScreen(): React.ReactElement {
       const found = allLogs.find(l => l.date === dateStr);
       const intake = found ? getTotalIntake(found) : 0;
       const workout = found?.workoutCalBurned ?? 0;
-      const net = intake - (tdee + workout);
+      const dailyNetBalance = intake - (tdee + workout);
       arr.push({
         date: dateStr,
         intake,
         workout,
-        net,
+        dailyNetBalance,
         proteinTotal: found?.proteinTotal ?? 0,
         fatTotal: found?.fatTotal ?? 0,
         carbsTotal: found?.carbsTotal ?? 0,
@@ -65,7 +65,7 @@ export function HomeScreen(): React.ReactElement {
     return arr;
   }, [allLogs, tdee]);
 
-  const maxDeviation = Math.max(...last7.map(l => Math.abs(l.net)), 1);
+  const maxDeviation = Math.max(...last7.map(l => Math.abs(l.dailyNetBalance)), 1);
   const proteinTarget = Math.round(profile.currentWeightKg * 1.8);
   const proteinMax = Math.max(...last7.map(l => Math.round(l.proteinTotal ?? 0)), proteinTarget, 1);
 
@@ -141,7 +141,7 @@ export function HomeScreen(): React.ReactElement {
             {/* center axis */}
             <View style={[styles.centerLine, { top: 70 }]} />
             {last7.map((day, i) => {
-              const net = day.net;
+              const net = day.dailyNetBalance;
               const abs = Math.abs(net);
               const pixel = Math.max((abs / maxDeviation) * 70, 4); // max half-height 70
               const label = day.date.slice(8);
