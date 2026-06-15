@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import dayjs from 'dayjs';
 import {
   Alert,
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -59,6 +60,7 @@ export function WorkoutScreen(): React.ReactElement {
 
   // Cardio draft (not persisted until confirm)
   const [cardioDraft, setCardioDraft] = useState<{ activity: string; intensity?: string; duration?: string; distance?: string; estimate?: number; note?: string }>({ activity: '', intensity: '', duration: '', distance: '' });
+  const [isEstimating, setIsEstimating] = useState(false);
 
   // Lifting drafts keyed by templateIndex-exerciseIndex
   const [liftingDraft, setLiftingDraft] = useState<Record<string, { setsArray: { weight: string; reps: string }[]; durationActive: string; durationRest: string }>>({});
@@ -82,6 +84,7 @@ export function WorkoutScreen(): React.ReactElement {
 
   async function handleEstimateCardio() {
     if (!cardioDraft.activity || !cardioDraft.duration) return Alert.alert('Missing fields', 'Provide activity and duration.');
+    setIsEstimating(true);
     try {
       const dur = Number(cardioDraft.duration || 0);
       const intensityVal = cardioDraft.intensity ? Number(cardioDraft.intensity) : undefined;
@@ -89,6 +92,8 @@ export function WorkoutScreen(): React.ReactElement {
       setCardioDraft(d => ({ ...d, estimate: Math.round(res.calories), note: res.note || res.calories?.toString?.() }));
     } catch (e) {
       Alert.alert('Estimate failed', String(e));
+    } finally {
+      setIsEstimating(false);
     }
   }
 
@@ -173,10 +178,25 @@ export function WorkoutScreen(): React.ReactElement {
             <TextInput style={styles.input} value={cardioDraft.distance} onChangeText={(v) => setCardioDraft(d => ({ ...d, distance: v }))} placeholder="5km" placeholderTextColor={COLORS.textSecondary} />
 
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              <TouchableOpacity style={[styles.btn, !(cardioDraft.activity && cardioDraft.duration) && styles.btnDisabled]} onPress={handleEstimateCardio}>
-                <Text style={styles.btnText}>Estimate via Gemini</Text>
+              <TouchableOpacity
+                style={[styles.btn, (isEstimating || !(cardioDraft.activity && cardioDraft.duration)) && styles.btnDisabled]}
+                onPress={handleEstimateCardio}
+                disabled={isEstimating || !(cardioDraft.activity && cardioDraft.duration)}
+              >
+                {isEstimating ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                    <ActivityIndicator size="small" color="#fff" style={{ marginRight: 8 }} />
+                    <Text style={styles.btnText}>Estimating...</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.btnText}>Estimate via Gemini</Text>
+                )}
               </TouchableOpacity>
-              <TouchableOpacity style={styles.btnOutline} onPress={() => setCardioDraft({ activity: '', intensity: '', duration: '', distance: '' })}>
+              <TouchableOpacity
+                style={[styles.btnOutline, isEstimating && styles.btnDisabled]}
+                onPress={() => setCardioDraft({ activity: '', intensity: '', duration: '', distance: '' })}
+                disabled={isEstimating}
+              >
                 <Text style={styles.btnOutlineText}>Clear</Text>
               </TouchableOpacity>
             </View>
@@ -189,7 +209,7 @@ export function WorkoutScreen(): React.ReactElement {
                   <TouchableOpacity style={[styles.btn, { flex: 1 }]} onPress={handleConfirmCardio} disabled={saving}>
                     <Text style={styles.btnText}>{saving ? 'SAVING…' : 'Confirm & Log'}</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.btnOutline, { flex: 1 }]} onPress={() => setCardioDraft({ activity: '', intensity: '', duration: '', distance: '' })}>
+                  <TouchableOpacity style={[styles.btnOutline, { flex: 1 }, isEstimating && styles.btnDisabled]} onPress={() => setCardioDraft({ activity: '', intensity: '', duration: '', distance: '' })} disabled={isEstimating}>
                     <Text style={styles.btnOutlineText}>Discard</Text>
                   </TouchableOpacity>
                 </View>
