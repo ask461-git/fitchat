@@ -34,28 +34,40 @@ export function HomeScreen(): React.ReactElement {
   const tdee = Math.round(calculateTdee(profile));
   const totalIn = getTotalIntake(todayLog);
   const burned = todayLog.workoutCalBurned;
-  const netCal = getNetCal(todayLog);
-  const netColor = netCal <= 0 ? COLORS.deficit : COLORS.surplus;
+  const netBalance = totalIn - (tdee + burned);
+  const netColor = netBalance <= 0 ? COLORS.deficit : COLORS.surplus;
+  const netLabel = netBalance <= 0 ? 'CALORIE DEFICIT' : 'CALORIE SURPLUS';
+  const netAbs = Math.abs(netBalance);
   const accumulated = accumulatedDeficit(allLogs);
   const eta = etaDate(profile.currentWeightKg, profile.targetWeightKg, allLogs);
   const kgLeft = (profile.currentWeightKg - profile.targetWeightKg).toFixed(1);
 
-  // Chart data
-  const chartLogs = allLogs.slice(-14);
-  const maxDeviation = Math.max(...chartLogs.map(l => Math.abs(getNetCal(l))), 1);
-
-  const recentLogs = useMemo(() => {
-    const logs = [] as any[];
-    for (let i = 1; i <= 7; i++) {
+  // Last 7 days data (oldest -> newest)
+  const last7 = useMemo(() => {
+    const arr: any[] = [];
+    for (let i = 6; i >= 0; i--) {
       const dateStr = dayjs().subtract(i, 'day').format('YYYY-MM-DD');
       const found = allLogs.find(l => l.date === dateStr);
-      logs.push(found ?? { date: dateStr, workoutCalBurned: 0, proteinTotal: 0, fatTotal: 0, carbsTotal: 0, fiberTotal: 0 });
+      const intake = found ? getTotalIntake(found) : 0;
+      const workout = found?.workoutCalBurned ?? 0;
+      const net = intake - (tdee + workout);
+      arr.push({
+        date: dateStr,
+        intake,
+        workout,
+        net,
+        proteinTotal: found?.proteinTotal ?? 0,
+        fatTotal: found?.fatTotal ?? 0,
+        carbsTotal: found?.carbsTotal ?? 0,
+        fiberTotal: found?.fiberTotal ?? 0,
+      });
     }
-    return logs;
-  }, [allLogs]);
+    return arr;
+  }, [allLogs, tdee]);
 
+  const maxDeviation = Math.max(...last7.map(l => Math.abs(l.net)), 1);
   const proteinTarget = Math.round(profile.currentWeightKg * 1.8);
-  const proteinMax = Math.max(...recentLogs.map(l => Math.round(l.proteinTotal ?? 0)), proteinTarget, 1);
+  const proteinMax = Math.max(...last7.map(l => Math.round(l.proteinTotal ?? 0)), proteinTarget, 1);
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
@@ -124,24 +136,26 @@ export function HomeScreen(): React.ReactElement {
         </Text>
       </View>
 
-      {/* Bidirectional Net Calories chart (center axis) */}
-      {chartLogs.length >= 2 && (
+      {/* Bidirectional Net Calories chart (center axis) - last 7 days */}
+      {last7.length >= 2 && (
         <View style={styles.mt}>
-          <Text style={styles.chartTitle}>NET CALORIES — LAST 14 DAYS</Text>
+          <Text style={styles.chartTitle}>NET CALORIES — LAST 7 DAYS</Text>
           <View style={[styles.chart, { height: 140, position: 'relative', paddingBottom: 0 }]}
           >
             {/* center axis */}
             <View style={[styles.centerLine, { top: 70 }]} />
-            {chartLogs.map((log, i) => {
-              const net = getNetCal(log);
+            {last7.map((day, i) => {
+              const net = day.net;
               const abs = Math.abs(net);
               const pixel = Math.max((abs / maxDeviation) * 70, 4); // max half-height 70
-              const label = log.date.slice(8);
+              const label = day.date.slice(8);
               return (
                 <View key={i} style={styles.bidBarWrap}>
                   {net <= 0 ? (
+                    // Deficit: grow UP from center
                     <View style={[styles.bidBar, { bottom: 70, height: pixel, backgroundColor: COLORS.deficit }]} />
                   ) : (
+                    // Surplus: grow DOWN from center
                     <View style={[styles.bidBar, { top: 70, height: pixel, backgroundColor: COLORS.surplus }]} />
                   )}
                   <Text style={styles.barDate}>{label}</Text>
