@@ -8,67 +8,72 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-} from 'react-native';
-import dayjs from 'dayjs';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RootStackParamList } from '../navigation/AppNavigator';
-import { MEAL_CATEGORIES, type MealCategory, type DailyLog, type MealEntry, getNetCal, getTotalIntake, getMealCal } from '../models';
-import { useDailyLogStore } from '../store/dailyLogStore';
-import { useProfileStore } from '../store/profileStore';
-import { calculateTdee } from '../services/bmr';
-import { MealCategoryRow } from '../components/MealCategoryRow';
-import { Loader } from '../components/Loader';
-import * as db from '../database/db';
-import { COLORS, FONT, RADIUS, SPACING } from '../theme/theme';
+      {/* Summary */}
+      <View style={styles.summaryCard}>
+        <Row label="Total Intake" value={`${totalIn} kcal`} />
+        <View style={styles.divider} />
+        <Row label="Workout Burned" value={`-${burned} kcal`} />
+        <View style={styles.divider} />
+        <Row
+          label="Net Calories"
+          value={`${net > 0 ? '+' : ''}${net} kcal`}
+          valueColor={netColor}
+          bold
+        />
+        <View style={styles.divider} />
+        <Row label="Protein" value={`${Math.round(todayLog.proteinTotal ?? 0)} g`} />
+        <View style={styles.divider} />
+        <Row label="Fat" value={`${Math.round(todayLog.fatTotal ?? 0)} g`} />
+        <View style={styles.divider} />
+        <Row label="Carbs" value={`${Math.round(todayLog.carbsTotal ?? 0)} g`} />
+        <View style={styles.divider} />
+        <Row label="Fiber" value={`${Math.round(todayLog.fiberTotal ?? 0)} g`} />
+      </View>
 
-export function MealLogScreen(): React.ReactElement {
-  const { todayLog, allLogs, isLoading, setMealCalories, deleteMealEntry } = useDailyLogStore();
-  const { profile } = useProfileStore();
-  const [editCat, setEditCat] = useState<MealCategory | null>(null);
-  const [editVal, setEditVal] = useState('');
-  const [todayEntries, setTodayEntries] = useState<MealEntry[]>([]);
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+      {/* Last 7 days */}
+      {recentLogs.length > 0 && (
+        <>
+          <Text style={[styles.title, { marginTop: SPACING.lg }]}>LAST 7 DAYS</Text>
+          <View style={styles.historyCard}>
+            {recentLogs.map((log, idx) => {
+              const dayTotal = getTotalIntake(log);
+              const dayTdee = log.tdeeSnapshot && log.tdeeSnapshot > 0 ? Math.round(log.tdeeSnapshot) : tdee;
+              const dayNet = dayTotal - (dayTdee + (log.workoutCalBurned || 0));
+              const dayNetColor = dayNet > 0 ? COLORS.error : COLORS.accent;
+              const isLast = idx === recentLogs.length - 1;
 
-  const todayStr = dayjs().format('YYYY-MM-DD');
-
-  // Load today's meal entries whenever todayLog changes (new meals logged).
-  useEffect(() => {
-    db.getMealEntriesForDate(todayStr).then(setTodayEntries);
-  }, [todayLog]);
-
-  if (isLoading || !todayLog || !profile) return <Loader />;
-
-  const tdee = Math.round(calculateTdee(profile));
-  const totalIn = getTotalIntake(todayLog);
-  const burned = todayLog.workoutCalBurned;
-  const net = getNetCal(todayLog, tdee);
-  const netColor = net > 0 ? COLORS.error : COLORS.deficit;
-
-  // Always show all 7 prior days, filling zeros for days with no record.
-  const recentLogs: DailyLog[] = [];
-  for (let i = 1; i <= 7; i++) {
-    const dateStr = dayjs().subtract(i, 'day').format('YYYY-MM-DD');
-    const found = allLogs.find(l => l.date === dateStr);
-    recentLogs.push(found ?? {
-      date: dateStr,
-      breakfastCal: 0,
-      morningSnackCal: 0,
-      lunchCal: 0,
-      eveningSnackCal: 0,
-      dinnerCal: 0,
-      workoutCalBurned: 0,
-      tdeeSnapshot: 0,
-    });
-  }
-
-  function openEdit(cat: MealCategory) {
-    setEditCat(cat);
-    const cur = getMealCal(todayLog!, cat);
-    setEditVal(cur > 0 ? String(cur) : '');
-  }
-
-  async function confirmEdit() {
+              return (
+                <TouchableOpacity
+                  key={log.date || idx}
+                  style={{ paddingVertical: SPACING.sm }}
+                  onPress={() => navigation.navigate('DayDetail', { date: log.date })}
+                  activeOpacity={0.7}
+                >
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 13 }}>
+                        {dayjs(log.date).format('ddd, MMM D')}
+                      </Text>
+                      <Text style={{ color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 11, marginTop: 2 }}>
+                        {log.workoutCalBurned > 0 ? `–${log.workoutCalBurned} kcal burned` : 'No workout'}
+                      </Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 13 }}>
+                        {dayTotal} kcal
+                      </Text>
+                      <Text style={{ color: dayNetColor, fontFamily: FONT.regular, fontSize: 11, marginTop: 2 }}>
+                        {dayNet <= 0 ? `${Math.abs(dayNet)} deficit` : `+${dayNet} surplus`}
+                      </Text>
+                    </View>
+                  </View>
+                  {!isLast && <View style={styles.divider} />}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </>
+      )}
     if (!editCat) return;
     const val = parseInt(editVal, 10);
     if (isNaN(val) || val < 0)
@@ -148,39 +153,38 @@ export function MealLogScreen(): React.ReactElement {
       <View style={styles.summaryCard}>
         <Row label="Total Intake" value={`${totalIn} kcal`} />
           <View style={styles.historyCard}>
-            {recentLogs.map((log, idx) => {
-                  const dayTotal = getTotalIntake(log);
-                  const dayTdee = log.tdeeSnapshot && log.tdeeSnapshot > 0 ? Math.round(log.tdeeSnapshot) : tdee;
-                  const dayNet = getNetCal(log, dayTdee);
-                  const dayNetColor = dayNet > 0 ? COLORS.error : COLORS.accent;
-              const isLast = idx === recentLogs.length - 1;
-              return (
-                <View key={log.date}>
-                  <TouchableOpacity
-                    style={styles.historyRow}
-                    onPress={() => navigation.navigate('DayDetail', { date: log.date })}
-                    activeOpacity={0.7}
-                  >
-                    <View>
-                      <Text style={styles.historyDate}>
-                        {dayjs(log.date).format('ddd, MMM D')}
-                      </Text>
-                      <Text style={styles.historyBurned}>
-                        {log.workoutCalBurned > 0 ? `–${log.workoutCalBurned} burned` : 'No workout'}
-                      </Text>
-                    </View>
-                    <View style={styles.historyRight}>
-                      <Text style={styles.historyTotal}>{dayTotal} kcal</Text>
-                      <Text style={[styles.historyNet, { color: dayNetColor }]}>\
-                        {dayNet > 0 ? '+' : ''}{dayNet} net
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                  {!isLast && <View style={styles.divider} />}
+          {recentLogs.map((log, idx) => {
+            const dayTotal = getTotalIntake(log);
+            const dayTdee = log.tdeeSnapshot && log.tdeeSnapshot > 0 ? Math.round(log.tdeeSnapshot) : tdee;
+            const dayNet = dayTotal - (dayTdee + (log.workoutCalBurned || 0));
+            const dayNetColor = dayNet > 0 ? COLORS.error : COLORS.accent;
+            const isLast = idx === recentLogs.length - 1;
+
+            return (
+              <View key={log.date || idx}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: SPACING.sm }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 13 }}>
+                      {dayjs(log.date).format('ddd, MMM D')}
+                    </Text>
+                    <Text style={{ color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 11, marginTop: 2 }}>
+                      {log.workoutCalBurned > 0 ? `–${log.workoutCalBurned} kcal burned` : 'No workout'}
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 13 }}>
+                      {dayTotal} kcal
+                    </Text>
+                    <Text style={{ color: dayNetColor, fontFamily: FONT.regular, fontSize: 11, marginTop: 2 }}>
+                      {dayNet <= 0 ? `${Math.abs(dayNet)} deficit` : `+${dayNet} surplus`}
+                    </Text>
+                  </View>
                 </View>
-              );
-            })}
-          </View>
+                {!isLast && <View style={{ height: 1, backgroundColor: COLORS.divider }} />}
+              </View>
+            );
+          })}
+        </View>
                     onPress={() => navigation.navigate('DayDetail', { date: log.date })}
                     activeOpacity={0.7}
                   >
