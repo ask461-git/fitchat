@@ -7,6 +7,7 @@ export interface CardioInput {
   activity: string;
   intensity?: number | string;
   durationMinutes: number;
+  distance?: string; // e.g. '5km' or '3mi'
 }
 
 export interface CardioEstimateResult {
@@ -19,6 +20,7 @@ export async function estimateCardioForUser(input: CardioInput, weightKg = 89): 
     activity: input.activity,
     intensity: input.intensity,
     durationMinutes: input.durationMinutes,
+    distance: input.distance,
     weightKg,
   });
   return { calories: res.calories, note: res.text };
@@ -29,10 +31,13 @@ export async function confirmAndLogCardio(input: CardioInput, calories: number, 
   const date = dayjs().format('YYYY-MM-DD');
   const workout: WorkoutLog = {
     date,
-    exerciseType: input.activity + (input.intensity !== undefined ? ` (intensity:${input.intensity})` : ''),
+    exerciseType:
+      input.activity +
+      (input.intensity !== undefined ? ` (intensity:${input.intensity})` : '') +
+      (input.distance ? ` • ${input.distance}` : ''),
     durationMinutes: input.durationMinutes,
     caloriesBurned: Math.round(calories),
-    notes: note || '',
+    notes: `${note || ''}${input.distance ? ` • distance: ${input.distance}` : ''}`.trim(),
   };
 
   // Use the zustand store action to insert + roll calories into the daily log.

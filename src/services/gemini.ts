@@ -325,14 +325,16 @@ export async function estimateCardio(params: {
   activity: string;
   intensity?: number | string;
   durationMinutes: number;
+  distance?: string;
   weightKg: number;
 }): Promise<{ calories: number; text: string }> {
   const { activity, intensity, durationMinutes, weightKg } = params;
+  const distanceLine = params.distance ? `Distance: ${params.distance}\n` : '';
   const prompt = `Estimate calories burned for the following activity.
 Activity: ${activity}
 Intensity/Incline/Resistance: ${intensity ?? 'N/A'}
 Duration (minutes): ${durationMinutes}
-Weight (kg): ${weightKg}
+${distanceLine}Weight (kg): ${weightKg}
 
 Answer with a single JSON object exactly like: {"calories": 123.45, "note": "brief explanation"}`;
 

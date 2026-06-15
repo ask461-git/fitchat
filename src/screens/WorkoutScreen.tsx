@@ -57,7 +57,7 @@ export function WorkoutScreen(): React.ReactElement {
   const [historyExercise, setHistoryExercise] = useState<string | null>(null);
 
   // Cardio draft (not persisted until confirm)
-  const [cardioDraft, setCardioDraft] = useState<{ activity: string; intensity?: string; duration?: string; estimate?: number; note?: string }>({ activity: '', intensity: '', duration: '' });
+  const [cardioDraft, setCardioDraft] = useState<{ activity: string; intensity?: string; duration?: string; distance?: string; estimate?: number; note?: string }>({ activity: '', intensity: '', duration: '', distance: '' });
 
   // Lifting drafts keyed by templateIndex-exerciseIndex
   const [liftingDraft, setLiftingDraft] = useState<Record<string, { setsArray: { weight: string; reps: string }[]; durationActive: string; durationRest: string }>>({});
@@ -70,8 +70,8 @@ export function WorkoutScreen(): React.ReactElement {
     if (!cardioDraft.estimate) return Alert.alert('No estimate', 'Please estimate calories before confirming.');
     setSaving(true);
     try {
-      await confirmAndLogCardio({ activity: cardioDraft.activity, intensity: cardioDraft.intensity, durationMinutes: Number(cardioDraft.duration || 0) }, cardioDraft.estimate || 0, cardioDraft.note || '');
-      setCardioDraft({ activity: '', intensity: '', duration: '' });
+      await confirmAndLogCardio({ activity: cardioDraft.activity, intensity: cardioDraft.intensity, durationMinutes: Number(cardioDraft.duration || 0), distance: cardioDraft.distance }, cardioDraft.estimate || 0, cardioDraft.note || '');
+      setCardioDraft({ activity: '', intensity: '', duration: '', distance: '' });
       await loadTodayWorkouts();
     } catch (e) {
       Alert.alert('Save failed', String(e));
@@ -84,7 +84,7 @@ export function WorkoutScreen(): React.ReactElement {
     try {
       const dur = Number(cardioDraft.duration || 0);
       const intensityVal = cardioDraft.intensity ? Number(cardioDraft.intensity) : undefined;
-      const res = await estimateCardioForUser({ activity: cardioDraft.activity, intensity: intensityVal, durationMinutes: dur }, profile.currentWeightKg);
+      const res = await estimateCardioForUser({ activity: cardioDraft.activity, intensity: intensityVal, durationMinutes: dur, distance: cardioDraft.distance }, profile.currentWeightKg);
       setCardioDraft(d => ({ ...d, estimate: Math.round(res.calories), note: res.note || res.calories?.toString?.() }));
     } catch (e) {
       Alert.alert('Estimate failed', String(e));
@@ -168,12 +168,14 @@ export function WorkoutScreen(): React.ReactElement {
             <TextInput style={styles.input} value={cardioDraft.intensity} onChangeText={(v) => setCardioDraft(d => ({ ...d, intensity: v }))} keyboardType="number-pad" placeholder="eg. 25" placeholderTextColor={COLORS.textSecondary} />
             <Text style={styles.fieldLabel}>DURATION (minutes)</Text>
             <TextInput style={styles.input} value={cardioDraft.duration} onChangeText={(v) => setCardioDraft(d => ({ ...d, duration: v }))} keyboardType="number-pad" placeholder="25" placeholderTextColor={COLORS.textSecondary} />
+            <Text style={styles.fieldLabel}>DISTANCE (e.g., 5km or 3mi)</Text>
+            <TextInput style={styles.input} value={cardioDraft.distance} onChangeText={(v) => setCardioDraft(d => ({ ...d, distance: v }))} placeholder="5km" placeholderTextColor={COLORS.textSecondary} />
 
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <TouchableOpacity style={[styles.btn, !(cardioDraft.activity && cardioDraft.duration) && styles.btnDisabled]} onPress={handleEstimateCardio}>
                 <Text style={styles.btnText}>Estimate via Gemini</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.btnOutline} onPress={() => setCardioDraft({ activity: '', intensity: '', duration: '' })}>
+              <TouchableOpacity style={styles.btnOutline} onPress={() => setCardioDraft({ activity: '', intensity: '', duration: '', distance: '' })}>
                 <Text style={styles.btnOutlineText}>Clear</Text>
               </TouchableOpacity>
             </View>
@@ -185,7 +187,7 @@ export function WorkoutScreen(): React.ReactElement {
                   <TouchableOpacity style={[styles.btn, { flex: 1 }]} onPress={handleConfirmCardio} disabled={saving}>
                     <Text style={styles.btnText}>{saving ? 'SAVING…' : 'Confirm & Log'}</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.btnOutline, { flex: 1 }]} onPress={() => setCardioDraft({ activity: '', intensity: '', duration: '' })}>
+                  <TouchableOpacity style={[styles.btnOutline, { flex: 1 }]} onPress={() => setCardioDraft({ activity: '', intensity: '', duration: '', distance: '' })}>
                     <Text style={styles.btnOutlineText}>Discard</Text>
                   </TouchableOpacity>
                 </View>
