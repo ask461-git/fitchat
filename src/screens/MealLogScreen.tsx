@@ -124,7 +124,10 @@ export function MealLogScreen(): React.ReactElement {
               <View style={styles.dishList}>
                 {catEntries.map(e => (
                   <View key={e.id} style={styles.dishRow}>
-                    <Text style={styles.dishDesc}>{e.foodDescription}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.dishDesc}>{e.foodDescription}</Text>
+                      <Text style={styles.dishMacro}>{`P ${Math.round(e.protein ?? 0)}g · F ${Math.round(e.fat ?? 0)}g · C ${Math.round(e.carbs ?? 0)}g · Fib ${Math.round(e.fiber ?? 0)}g`}</Text>
+                    </View>
                     <Text style={styles.dishKcal}>{e.calories} kcal</Text>
                     <TouchableOpacity onPress={() => handleDeleteEntry(e)}>
                       <Text style={styles.dishDelete}>✕</Text>
@@ -149,6 +152,14 @@ export function MealLogScreen(): React.ReactElement {
           valueColor={netColor}
           bold
         />
+        <View style={styles.divider} />
+        <Row label="Protein" value={`${Math.round(todayLog.proteinTotal ?? 0)} g`} />
+        <View style={styles.divider} />
+        <Row label="Fat" value={`${Math.round(todayLog.fatTotal ?? 0)} g`} />
+        <View style={styles.divider} />
+        <Row label="Carbs" value={`${Math.round(todayLog.carbsTotal ?? 0)} g`} />
+        <View style={styles.divider} />
+        <Row label="Fiber" value={`${Math.round(todayLog.fiberTotal ?? 0)} g`} />
       </View>
 
       {/* Last 7 days */}
@@ -334,6 +345,12 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     fontFamily: FONT.regular,
     fontSize: 12,
+  },
+  dishMacro: {
+    color: COLORS.textSecondary,
+    fontFamily: FONT.regular,
+    fontSize: 11,
+    marginTop: 2,
   },
   dishDelete: {
     color: COLORS.surplus,

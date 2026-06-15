@@ -72,6 +72,7 @@ export function ChatScreen(): React.ReactElement {
   } = useChatStore();
 
   const [input, setInput] = React.useState('');
+  const [editingMeals, setEditingMeals] = React.useState<Record<string, boolean>>({});
   const flatRef = useRef<FlatList>(null);
 
   useEffect(() => {
@@ -161,6 +162,10 @@ export function ChatScreen(): React.ReactElement {
       {pendingItems && (
         <View style={styles.refinementPanel}>
           <Text style={styles.refinementTitle}>✏️  Review & refine before logging</Text>
+          <Text style={styles.refinementHint}>Tap the button to approve all items as shown, or edit any row before logging.</Text>
+          <TouchableOpacity style={styles.quickApproveBtn} onPress={confirmPendingItems}>
+            <Text style={styles.quickApproveBtnText}>✓ Approve all and log</Text>
+          </TouchableOpacity>
           <ScrollView style={styles.refinementScroll} keyboardShouldPersistTaps="handled">
 
             {/* Meal rows */}
@@ -199,6 +204,61 @@ export function ChatScreen(): React.ReactElement {
                     placeholder="kcal"
                     placeholderTextColor={COLORS.textSecondary}
                   />
+                  {/* Display Gemini-provided macros read-only by default */}
+                  {!editingMeals[m.id] ? (
+                    <View style={styles.macroDisplay}>
+                      <Text style={styles.macroText}>{`P ${Math.round(m.protein ?? 0)}g · F ${Math.round(m.fat ?? 0)}g · C ${Math.round(
+                        m.carbs ?? 0,
+                      )}g · Fib ${Math.round(m.fiber ?? 0)}g`}</Text>
+                      <TouchableOpacity
+                        onPress={() => setEditingMeals(prev => ({ ...prev, [m.id]: true }))}
+                        style={styles.editMacroBtn}
+                      >
+                        <Text style={styles.editMacroBtnText}>Edit</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View style={styles.macroEditRow}>
+                      <TextInput
+                        style={[styles.draftInput, styles.macroInput]}
+                        value={m.protein ? String(Math.round(m.protein)) : ''}
+                        onChangeText={v => updateDraftMeal(m.id, { protein: parseInt(v, 10) || 0 })}
+                        keyboardType="number-pad"
+                        placeholder="P g"
+                        placeholderTextColor={COLORS.textSecondary}
+                      />
+                      <TextInput
+                        style={[styles.draftInput, styles.macroInput]}
+                        value={m.fat ? String(Math.round(m.fat)) : ''}
+                        onChangeText={v => updateDraftMeal(m.id, { fat: parseInt(v, 10) || 0 })}
+                        keyboardType="number-pad"
+                        placeholder="F g"
+                        placeholderTextColor={COLORS.textSecondary}
+                      />
+                      <TextInput
+                        style={[styles.draftInput, styles.macroInput]}
+                        value={m.carbs ? String(Math.round(m.carbs)) : ''}
+                        onChangeText={v => updateDraftMeal(m.id, { carbs: parseInt(v, 10) || 0 })}
+                        keyboardType="number-pad"
+                        placeholder="C g"
+                        placeholderTextColor={COLORS.textSecondary}
+                      />
+                      <TextInput
+                        style={[styles.draftInput, styles.macroInput]}
+                        value={m.fiber ? String(Math.round(m.fiber)) : ''}
+                        onChangeText={v => updateDraftMeal(m.id, { fiber: parseInt(v, 10) || 0 })}
+                        keyboardType="number-pad"
+                        placeholder="Fib g"
+                        placeholderTextColor={COLORS.textSecondary}
+                      />
+                      <TouchableOpacity
+                        onPress={() => setEditingMeals(prev => ({ ...prev, [m.id]: false }))}
+                        style={styles.editMacroBtn}
+                      >
+                        <Text style={styles.editMacroBtnText}>Done</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                   <TouchableOpacity onPress={() => removeDraftMeal(m.id)} style={styles.draftRemove}>
                     <Text style={styles.draftRemoveText}>✕</Text>
                   </TouchableOpacity>
@@ -253,7 +313,7 @@ export function ChatScreen(): React.ReactElement {
               <Text style={styles.rejectBtnText}>✕  Discard</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.confirmBtn} onPress={confirmPendingItems}>
-              <Text style={styles.confirmBtnText}>✓  Log it</Text>
+              <Text style={styles.confirmBtnText}>✓  Approve and log</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -376,6 +436,25 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.divider,
   },
+  refinementHint: {
+    color: COLORS.textSecondary,
+    fontFamily: FONT.regular,
+    fontSize: 12,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+  },
+  quickApproveBtn: {
+    backgroundColor: COLORS.accent,
+    borderRadius: RADIUS.md,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: SPACING.md,
+    alignItems: 'center',
+  },
+  quickApproveBtnText: {
+    color: COLORS.black,
+    fontFamily: FONT.bold,
+    fontSize: 13,
+  },
   refinementScroll: { maxHeight: 240 },
   refinementSection: {
     color: COLORS.textSecondary,
@@ -417,6 +496,12 @@ const styles = StyleSheet.create({
     borderColor: COLORS.divider,
   },
   draftKcal: { width: 58 },
+  macroInput: { width: 56, marginLeft: 6 },
+  macroDisplay: { flexDirection: 'row', alignItems: 'center', marginLeft: 8 },
+  macroText: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 12 },
+  editMacroBtn: { marginLeft: 8, paddingHorizontal: 8, paddingVertical: 6, backgroundColor: COLORS.surfaceAlt, borderRadius: RADIUS.sm },
+  editMacroBtnText: { color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 12 },
+  macroEditRow: { flexDirection: 'row', alignItems: 'center', marginLeft: 8 },
   draftRemove: { paddingLeft: SPACING.xs },
   draftRemoveText: { color: COLORS.surplus, fontSize: 14 },
   addRowBtn: {

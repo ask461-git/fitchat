@@ -61,14 +61,54 @@ export function ProfileScreen(): React.ReactElement {
   const bmr = Math.round(calculateBmr(profile));
   const tdee = Math.round(calculateTdee(profile));
 
+  // Local currency conversion: default to INR for personal use if env not set.
+  const usdToLocalEnv = parseFloat(process.env.EXPO_PUBLIC_USD_TO_LOCAL ?? '');
+  const usdToLocal = usdToLocalEnv > 0 ? usdToLocalEnv : 82.5;
+  const localCurrency = process.env.EXPO_PUBLIC_LOCAL_CURRENCY ?? 'INR';
+
   async function handleSaveUrl() {
     const trimmed = sheetsUrlInput.trim();
     setSavingUrl(true);
+
+    // Basic validation
+    if (trimmed && !/^https?:\/\//i.test(trimmed)) {
+      setSavingUrl(false);
+      return Alert.alert('Invalid URL', 'Please enter a valid URL starting with http:// or https://');
+    }
+
     await db.setSetting('sheets_url', trimmed);
     setSheetsUrl(trimmed);
-    setSavingUrl(false);
-    setSyncStatus('idle');
-    Alert.alert('Saved', trimmed ? 'Sheets URL saved.' : 'Sheets URL cleared.');
+
+    // If a URL was provided, do a quick POST test to surface success/failure immediately.
+    if (trimmed) {
+      try {
+        setSyncStatus('idle');
+        const res = await fetch(trimmed, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ test: true }),
+        });
+        const json = await res.json().catch(() => null);
+        if (res.ok && (json === null || json?.ok === true)) {
+          setSyncStatus('ok');
+          // Try a full sync to ensure app data flows through.
+          try { await syncToSheets(); } catch (_) { /* ignore */ }
+          Alert.alert('Saved', 'Sheets URL saved and test succeeded.');
+        } else {
+          setSyncStatus('err');
+          Alert.alert('Saved', 'Sheets URL saved but test request failed.');
+        }
+      } catch (err) {
+        setSyncStatus('err');
+        Alert.alert('Saved', 'Sheets URL saved but network test failed.');
+      } finally {
+        setSavingUrl(false);
+      }
+    } else {
+      setSyncStatus('idle');
+      setSavingUrl(false);
+      Alert.alert('Saved', 'Sheets URL cleared.');
+    }
   }
 
   async function handleSyncNow() {
@@ -163,13 +203,16 @@ export function ProfileScreen(): React.ReactElement {
             />
             <InfoRow
               label="Est. cost"
-              value={`$${apiUsage.totalCostUsd.toFixed(4)}`}
+              value={`$${apiUsage.totalCostUsd.toFixed(4)} (${localCurrency} ${(apiUsage.totalCostUsd * usdToLocal).toFixed(2)})`}
               last
             />
           </View>
           <Text style={styles.usageNote}>
             Based on Gemini 2.5 Flash list pricing ($0.075 / $0.30 per 1M tokens).
             Free-tier usage is not deducted.
+          </Text>
+          <Text style={styles.usageNoteSmall}>
+            Showing local conversion to {localCurrency} by default for personal use. Override with EXPO_PUBLIC_USD_TO_LOCAL and EXPO_PUBLIC_LOCAL_CURRENCY.
           </Text>
         </View>
       )}
@@ -368,6 +411,13 @@ const styles = StyleSheet.create({
     marginTop: SPACING.sm,
     fontStyle: 'italic',
     lineHeight: 16,
+  },
+  usageNoteSmall: {
+    color: COLORS.textSecondary,
+    fontFamily: FONT.regular,
+    fontSize: 11,
+    marginTop: SPACING.xs,
+    fontStyle: 'italic',
   },
   fieldWrap: { marginBottom: SPACING.md },
   fieldLabel: {

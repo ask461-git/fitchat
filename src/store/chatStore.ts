@@ -3,19 +3,24 @@ import dayjs from 'dayjs';
 import * as db from '../database/db';
 import type { ChatMessage } from '../models';
 import type { ConversationTurn, LogMealResult, LogWorkoutResult } from '../services/gemini';
-import { sendMessage as geminiSend } from '../services/gemini';
+import { sendMessage as geminiSend, estimateMacros } from '../services/gemini';
 import { useProfileStore } from './profileStore';
 import { useDailyLogStore } from './dailyLogStore';
 
-// Gemini 2.5 Flash estimated pricing (USD per token).
-const PRICE_INPUT_PER_TOKEN = 0.075 / 1_000_000;
-const PRICE_OUTPUT_PER_TOKEN = 0.30 / 1_000_000;
+// Gemini pricing (USD per token). Can be overridden via env:
+// EXPO_PUBLIC_GEMINI_PRICE_INPUT_USD and EXPO_PUBLIC_GEMINI_PRICE_OUTPUT_USD
+const PRICE_INPUT_PER_TOKEN = parseFloat(process.env.EXPO_PUBLIC_GEMINI_PRICE_INPUT_USD ?? '') || 0.075 / 1_000_000;
+const PRICE_OUTPUT_PER_TOKEN = parseFloat(process.env.EXPO_PUBLIC_GEMINI_PRICE_OUTPUT_USD ?? '') || 0.30 / 1_000_000;
 
 export interface DraftMeal {
   id: string; // local key for list rendering
   category: string;
   foodDescription: string;
   estimatedCalories: number;
+  protein?: number;
+  fat?: number;
+  carbs?: number;
+  fiber?: number;
 }
 
 export interface DraftWorkout {
@@ -143,6 +148,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
               category: m.category,
               foodDescription: m.foodDescription,
               estimatedCalories: m.estimatedCalories,
+              protein: (m as any).protein ?? 0,
+              fat: (m as any).fat ?? 0,
+              carbs: (m as any).carbs ?? 0,
+              fiber: (m as any).fiber ?? 0,
             })),
             workouts: response.workoutsLogged.map(w => ({
               id: `w-${draftId++}`,
@@ -227,18 +236,38 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!pending) return;
     const { meals, workouts, date } = pending;
 
-    // Commit meals: update daily_logs aggregate + insert meal_entries detail.
+    // Insert meal_entries first so DB contains the new rows for accurate aggregation.
     for (const meal of meals) {
       if (!meal.foodDescription.trim() || meal.estimatedCalories <= 0) continue;
-      await useDailyLogStore
-        .getState()
-        .addMealCalories(meal.category, meal.estimatedCalories);
+      // If macros are missing, estimate them from calories.
+      const macros = (meal as any);
+      if (!macros.protein && !macros.fat && !macros.carbs && !macros.fiber) {
+        const est = estimateMacros(meal.estimatedCalories);
+        macros.protein = est.protein;
+        macros.fat = est.fat;
+        macros.carbs = est.carbs;
+        macros.fiber = est.fiber;
+      }
       await db.insertMealEntry({
         date,
         category: meal.category,
         foodDescription: meal.foodDescription,
         calories: meal.estimatedCalories,
+        protein: (macros as any).protein ?? 0,
+        fat: (macros as any).fat ?? 0,
+        carbs: (macros as any).carbs ?? 0,
+        fiber: (macros as any).fiber ?? 0,
       });
+    }
+
+    // Recompute per-category calorie totals from DB and update daily_log accordingly.
+    const allMeals = await db.getMealEntriesForDate(date);
+    const categories = new Map<string, number>();
+    for (const m of allMeals) {
+      categories.set(m.category, (categories.get(m.category) || 0) + m.calories);
+    }
+    for (const [category, total] of categories.entries()) {
+      await useDailyLogStore.getState().setMealCalories(category, total);
     }
 
     // Commit workouts.

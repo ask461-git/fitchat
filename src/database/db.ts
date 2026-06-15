@@ -32,7 +32,11 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
       evening_snack_cal INTEGER NOT NULL DEFAULT 0,
       dinner_cal INTEGER NOT NULL DEFAULT 0,
       workout_cal_burned INTEGER NOT NULL DEFAULT 0,
-      tdee_snapshot REAL NOT NULL DEFAULT 0
+      tdee_snapshot REAL NOT NULL DEFAULT 0,
+      protein_total REAL NOT NULL DEFAULT 0,
+      fat_total REAL NOT NULL DEFAULT 0,
+      carbs_total REAL NOT NULL DEFAULT 0,
+      fiber_total REAL NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS workout_logs (
@@ -57,7 +61,11 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
       date TEXT NOT NULL,
       category TEXT NOT NULL,
       food_description TEXT NOT NULL,
-      calories INTEGER NOT NULL
+      calories INTEGER NOT NULL,
+      protein_g REAL NOT NULL DEFAULT 0,
+      fat_g REAL NOT NULL DEFAULT 0,
+      carbs_g REAL NOT NULL DEFAULT 0,
+      fiber_g REAL NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS api_usage (
@@ -80,7 +88,71 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
     CREATE INDEX IF NOT EXISTS idx_api_usage_date    ON api_usage(date);
   `);
 
+  // Ensure new columns exist on older DBs.
+  await ensureColumns(_db);
+
+  // Backfill daily macro totals from existing meal entries so history shows macros.
+  try {
+    const rows = await _db.getAllAsync<{date: string; protein: number; fat: number; carbs: number; fiber: number}>(
+      `SELECT date,
+         COALESCE(SUM(protein_g),0) AS protein,
+         COALESCE(SUM(fat_g),0)     AS fat,
+         COALESCE(SUM(carbs_g),0)   AS carbs,
+         COALESCE(SUM(fiber_g),0)   AS fiber
+       FROM meal_entries
+       GROUP BY date`,
+    );
+    for (const r of rows) {
+      const existing = await _db.getFirstAsync<DailyLogRow>('SELECT * FROM daily_logs WHERE date = ?', [r.date]);
+      if (!existing) {
+        await _db.runAsync(
+          `INSERT INTO daily_logs
+             (date, breakfast_cal, morning_snack_cal, lunch_cal, evening_snack_cal, dinner_cal, workout_cal_burned, tdee_snapshot, protein_total, fat_total, carbs_total, fiber_total)
+           VALUES (?, 0,0,0,0,0,0, 0, ?, ?, ?, ?)`,
+          [r.date, r.protein, r.fat, r.carbs, r.fiber],
+        );
+      } else {
+        await _db.runAsync(
+          `UPDATE daily_logs SET protein_total = ?, fat_total = ?, carbs_total = ?, fiber_total = ? WHERE date = ?`,
+          [r.protein, r.fat, r.carbs, r.fiber, r.date],
+        );
+      }
+    }
+  } catch (e) {
+    // Swallow backfill errors — not critical for app startup.
+    // eslint-disable-next-line no-console
+    console.warn('Daily macro backfill failed', e);
+  }
+
   return _db;
+}
+
+// Perform lightweight migrations for adding new columns on existing DBs.
+async function ensureColumns(db: SQLite.SQLiteDatabase) {
+  try {
+    await db.runAsync('ALTER TABLE daily_logs ADD COLUMN protein_total REAL NOT NULL DEFAULT 0');
+  } catch (_) {}
+  try {
+    await db.runAsync('ALTER TABLE daily_logs ADD COLUMN fat_total REAL NOT NULL DEFAULT 0');
+  } catch (_) {}
+  try {
+    await db.runAsync('ALTER TABLE daily_logs ADD COLUMN carbs_total REAL NOT NULL DEFAULT 0');
+  } catch (_) {}
+  try {
+    await db.runAsync('ALTER TABLE daily_logs ADD COLUMN fiber_total REAL NOT NULL DEFAULT 0');
+  } catch (_) {}
+  try {
+    await db.runAsync('ALTER TABLE meal_entries ADD COLUMN protein_g REAL NOT NULL DEFAULT 0');
+  } catch (_) {}
+  try {
+    await db.runAsync('ALTER TABLE meal_entries ADD COLUMN fat_g REAL NOT NULL DEFAULT 0');
+  } catch (_) {}
+  try {
+    await db.runAsync('ALTER TABLE meal_entries ADD COLUMN carbs_g REAL NOT NULL DEFAULT 0');
+  } catch (_) {}
+  try {
+    await db.runAsync('ALTER TABLE meal_entries ADD COLUMN fiber_g REAL NOT NULL DEFAULT 0');
+  } catch (_) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -108,6 +180,10 @@ interface DailyLogRow {
   dinner_cal: number;
   workout_cal_burned: number;
   tdee_snapshot: number;
+  protein_total: number;
+  fat_total: number;
+  carbs_total: number;
+  fiber_total: number;
 }
 
 interface WorkoutRow {
@@ -133,6 +209,10 @@ interface MealEntryRow {
   category: string;
   food_description: string;
   calories: number;
+  protein_g: number;
+  fat_g: number;
+  carbs_g: number;
+  fiber_g: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -163,6 +243,10 @@ function toDailyLog(r: DailyLogRow): DailyLog {
     dinnerCal: r.dinner_cal,
     workoutCalBurned: r.workout_cal_burned,
     tdeeSnapshot: r.tdee_snapshot,
+    proteinTotal: r.protein_total,
+    fatTotal: r.fat_total,
+    carbsTotal: r.carbs_total,
+    fiberTotal: r.fiber_total,
   };
 }
 
@@ -194,6 +278,10 @@ function toMealEntry(r: MealEntryRow): MealEntry {
     category: r.category,
     foodDescription: r.food_description,
     calories: r.calories,
+    protein: r.protein_g,
+    fat: r.fat_g,
+    carbs: r.carbs_g,
+    fiber: r.fiber_g,
   };
 }
 
@@ -234,7 +322,7 @@ export async function upsertProfile(profile: Profile): Promise<Profile> {
     [
       profile.name, profile.age, profile.heightCm,
       profile.currentWeightKg, profile.targetWeightKg,
-      profile.activityLevel, now, existing.id,
+      profile.activityLevel ?? '', now, existing.id!,
     ],
   );
   return { ...profile, id: existing.id, updatedAt: now };
@@ -287,12 +375,13 @@ export async function updateDailyLog(log: DailyLog): Promise<void> {
   await db.runAsync(
     `UPDATE daily_logs
      SET breakfast_cal=?, morning_snack_cal=?, lunch_cal=?,
-         evening_snack_cal=?, dinner_cal=?, workout_cal_burned=?, tdee_snapshot=?
+         evening_snack_cal=?, dinner_cal=?, workout_cal_burned=?, tdee_snapshot=?,
+         protein_total=?, fat_total=?, carbs_total=?, fiber_total=?
      WHERE id=?`,
     [
       log.breakfastCal, log.morningSnackCal, log.lunchCal,
       log.eveningSnackCal, log.dinnerCal, log.workoutCalBurned,
-      log.tdeeSnapshot, log.id,
+      log.tdeeSnapshot, log.proteinTotal ?? 0, log.fatTotal ?? 0, log.carbsTotal ?? 0, log.fiberTotal ?? 0, log.id!,
     ],
   );
 }
@@ -343,6 +432,7 @@ export async function resetDailyLog(date: string): Promise<void> {
     `UPDATE daily_logs SET
       breakfast_cal = 0, morning_snack_cal = 0, lunch_cal = 0,
       evening_snack_cal = 0, dinner_cal = 0, workout_cal_burned = 0
+      , protein_total = 0, fat_total = 0, carbs_total = 0, fiber_total = 0
      WHERE date = ?`,
     [date],
   );
@@ -357,8 +447,8 @@ export async function resetDailyLog(date: string): Promise<void> {
 export async function insertMealEntry(entry: MealEntry): Promise<MealEntry> {
   const db = await getDb();
   const res = await db.runAsync(
-    'INSERT INTO meal_entries (date, category, food_description, calories) VALUES (?, ?, ?, ?)',
-    [entry.date, entry.category, entry.foodDescription, entry.calories],
+    'INSERT INTO meal_entries (date, category, food_description, calories, protein_g, fat_g, carbs_g, fiber_g) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    [entry.date, entry.category, entry.foodDescription, entry.calories, entry.protein ?? 0, entry.fat ?? 0, entry.carbs ?? 0, entry.fiber ?? 0],
   );
   return { ...entry, id: res.lastInsertRowId };
 }

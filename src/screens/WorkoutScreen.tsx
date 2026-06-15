@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import dayjs from 'dayjs';
 import {
   Alert,
@@ -25,7 +25,7 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 export function WorkoutScreen(): React.ReactElement {
   const navigation = useNavigation<Nav>();
   const { profile } = useProfileStore();
-  const { todayWorkouts, isLoading, addWorkout, deleteWorkout } = useDailyLogStore();
+  const { todayWorkouts, allLogs, isLoading, addWorkout, deleteWorkout, loadAllLogs, loadTodayWorkouts } = useDailyLogStore();
 
   const [exercise, setExercise] = useState<string>(EXERCISE_KEYS[0]);
   const [duration, setDuration] = useState('');
@@ -34,10 +34,31 @@ export function WorkoutScreen(): React.ReactElement {
   const [editingWorkout, setEditingWorkout] = useState<WorkoutLog | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
+  useEffect(() => {
+    loadTodayWorkouts();
+    loadAllLogs();
+  }, [loadAllLogs, loadTodayWorkouts]);
+
   if (isLoading || !profile) return <Loader />;
 
   const durationN = parseInt(duration, 10) || 0;
   const estimate = estimateWorkoutCalories(exercise, durationN, profile.currentWeightKg);
+
+  const recentLogs = [];
+  for (let i = 1; i <= 7; i++) {
+    const dateStr = dayjs().subtract(i, 'day').format('YYYY-MM-DD');
+    const found = allLogs.find(l => l.date === dateStr);
+    recentLogs.push(found ?? {
+      date: dateStr,
+      breakfastCal: 0,
+      morningSnackCal: 0,
+      lunchCal: 0,
+      eveningSnackCal: 0,
+      dinnerCal: 0,
+      workoutCalBurned: 0,
+      tdeeSnapshot: 0,
+    });
+  }
 
   function handleEdit(w: WorkoutLog) {
     setEditingWorkout(w);
@@ -198,6 +219,30 @@ export function WorkoutScreen(): React.ReactElement {
             ))}
           </>
         )}
+
+        {recentLogs.length > 0 && (
+          <>
+            <Text style={[styles.title, { marginTop: SPACING.lg }]}>LAST 7 DAYS</Text>
+            <View style={styles.historyCard}>
+              {recentLogs.map((log, idx) => {
+                const isLast = idx === recentLogs.length - 1;
+                return (
+                  <View key={log.date}>
+                    <View style={styles.historyRow}>
+                      <View>
+                        <Text style={styles.historyDate}>{dayjs(log.date).format('ddd, MMM D')}</Text>
+                        <Text style={styles.historyBurned}>
+                          {log.workoutCalBurned > 0 ? `–${log.workoutCalBurned} burned` : 'No workouts'}
+                        </Text>
+                      </View>
+                    </View>
+                    {!isLast && <View style={styles.divider} />}
+                  </View>
+                );
+              })}
+            </View>
+          </>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -307,4 +352,27 @@ const styles = StyleSheet.create({
   },
   editBannerText: { color: COLORS.textPrimary, fontFamily: FONT.regular, fontSize: 13 },
   editBannerCancel: { color: COLORS.surplus, fontFamily: FONT.bold, fontSize: 12 },
+  historyCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+  },
+  historyRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: SPACING.sm,
+  },
+  historyDate: {
+    color: COLORS.textPrimary,
+    fontFamily: FONT.bold,
+    fontSize: 13,
+  },
+  historyBurned: {
+    color: COLORS.textSecondary,
+    fontFamily: FONT.regular,
+    fontSize: 12,
+    marginTop: SPACING.xs,
+  },
+  divider: { height: 1, backgroundColor: COLORS.divider },
 });

@@ -45,11 +45,11 @@ const styles = StyleSheet.create({
   },
   bubbleUser: {
     backgroundColor: COLORS.accent,
-    borderBottomRightRadius: RADIUS.xs,
+    borderBottomRightRadius: RADIUS.sm,
   },
   bubbleModel: {
     backgroundColor: COLORS.surfaceAlt,
-    borderBottomLeftRadius: RADIUS.xs,
+    borderBottomLeftRadius: RADIUS.sm,
   },
   text: {
     fontSize: 14,

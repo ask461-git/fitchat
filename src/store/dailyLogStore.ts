@@ -34,6 +34,7 @@ export interface DailyLogState {
   loadToday: () => Promise<void>;
   loadAllLogs: () => Promise<void>;
   loadTodayWorkouts: () => Promise<void>;
+  recalcDailyMacroTotals: (date: string) => Promise<void>;
   addMealCalories: (category: string, calories: number) => Promise<void>;
   setMealCalories: (category: string, calories: number) => Promise<void>;
   addWorkoutCalories: (calories: number) => Promise<void>;
@@ -74,6 +75,8 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
     await db.updateDailyLog(updated);
     const allLogs = await db.getAllDailyLogs();
     set({ todayLog: updated, allLogs });
+    // Recompute macros totals from meal entries
+    await get().recalcDailyMacroTotals(updated.date);
     get().syncToSheets();
   },
 
@@ -84,6 +87,7 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
     await db.updateDailyLog(updated);
     const allLogs = await db.getAllDailyLogs();
     set({ todayLog: updated, allLogs });
+    await get().recalcDailyMacroTotals(updated.date);
     get().syncToSheets();
   },
 
@@ -128,6 +132,8 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
       .filter(e => e.category === entry.category)
       .reduce((sum, e) => sum + e.calories, 0);
     await get().setMealCalories(entry.category, categoryTotal);
+    // Recompute macros totals after deletion
+    await get().recalcDailyMacroTotals(todayStr());
     // syncToSheets is called inside setMealCalories.
   },
 
@@ -139,6 +145,33 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
       db.getWorkoutsForDate(log.date),
     ]);
     await syncDayToSheets(log, meals, workouts);
+  },
+
+  recalcDailyMacroTotals: async (date) => {
+    const log = await db.getOrCreateDailyLog(date, getTdeeFromStore());
+    const meals = await db.getMealEntriesForDate(date);
+    const totals = meals.reduce(
+      (acc, m) => {
+        acc.cal += m.calories;
+        acc.pro += (m.protein ?? 0);
+        acc.fat += (m.fat ?? 0);
+        acc.carbs += (m.carbs ?? 0);
+        acc.fiber += (m.fiber ?? 0);
+        return acc;
+      },
+      { cal: 0, pro: 0, fat: 0, carbs: 0, fiber: 0 },
+    );
+    const updated: DailyLog = {
+      ...log,
+      // keep per-category calories as-is; only update aggregated macro totals
+      proteinTotal: totals.pro,
+      fatTotal: totals.fat,
+      carbsTotal: totals.carbs,
+      fiberTotal: totals.fiber,
+    };
+    await db.updateDailyLog(updated);
+    const allLogs = await db.getAllDailyLogs();
+    set({ todayLog: date === todayStr() ? updated : get().todayLog, allLogs });
   },
 
   clearDay: async (date) => {

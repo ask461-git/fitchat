@@ -14,6 +14,10 @@ export interface LogMealResult {
   category: string;
   foodDescription: string;
   estimatedCalories: number;
+  protein?: number;
+  fat?: number;
+  carbs?: number;
+  fiber?: number;
 }
 
 export interface LogWorkoutResult {
@@ -81,6 +85,22 @@ const TOOLS = [
               type: 'INTEGER',
               description: 'Estimated calorie count for this item.',
             },
+                  protein_g: {
+                    type: 'NUMBER',
+                    description: 'Estimated protein in grams for this item.',
+                  },
+                  fat_g: {
+                    type: 'NUMBER',
+                    description: 'Estimated fat in grams for this item.',
+                  },
+                  carbs_g: {
+                    type: 'NUMBER',
+                    description: 'Estimated carbs in grams for this item.',
+                  },
+                  fiber_g: {
+                    type: 'NUMBER',
+                    description: 'Estimated fiber in grams for this item.',
+                  },
           },
           required: ['category', 'food_description', 'estimated_calories'],
         },
@@ -232,6 +252,10 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
             category: args['category'],
             foodDescription: args['food_description'],
             estimatedCalories: Number(args['estimated_calories']),
+            protein: args['protein_g'] ? Number(args['protein_g']) : 0,
+            fat: args['fat_g'] ? Number(args['fat_g']) : 0,
+            carbs: args['carbs_g'] ? Number(args['carbs_g']) : 0,
+            fiber: args['fiber_g'] ? Number(args['fiber_g']) : 0,
           };
           mealsLogged.push(meal);
           result = {
@@ -294,4 +318,15 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
     clearDate,
     usage: { promptTokens: totalPromptTokens, candidatesTokens: totalCandidatesTokens },
   };
+}
+
+// Quick heuristic estimator for macros when not provided (grams).
+export function estimateMacros(calories: number) {
+  // Default split: P 20%, F 30%, C 45%, Fiber 5% of calories.
+  const pPerc = 0.20, fPerc = 0.30, cPerc = 0.45, fibPerc = 0.05;
+  const protein = Math.round((calories * pPerc) / 4);
+  const fat = Math.round((calories * fPerc) / 9);
+  const carbs = Math.round((calories * cPerc) / 4);
+  const fiber = Math.round((calories * fibPerc) / 2);
+  return { protein, fat, carbs, fiber };
 }

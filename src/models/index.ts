@@ -33,6 +33,11 @@ export interface DailyLog {
   dinnerCal: number;
   workoutCalBurned: number;
   tdeeSnapshot: number;
+  // aggregated macros for the day (grams)
+  proteinTotal?: number;
+  fatTotal?: number;
+  carbsTotal?: number;
+  fiberTotal?: number;
 }
 
 export const MEAL_CATEGORIES = [
@@ -106,6 +111,11 @@ export interface MealEntry {
   category: string;
   foodDescription: string;
   calories: number;
+  // macros for this entry (grams)
+  protein?: number;
+  fat?: number;
+  carbs?: number;
+  fiber?: number;
 }
 
 export const EXERCISE_KEYS = Object.keys(EXERCISE_METS);

@@ -92,6 +92,18 @@ export function HomeScreen(): React.ReactElement {
         />
       </View>
 
+      {/* Macro totals */}
+      <View style={[styles.row, styles.mt]}>
+        <StatCard label="PROTEIN" value={`${Math.round(todayLog.proteinTotal ?? 0)} g`} />
+        <View style={styles.gap} />
+        <StatCard label="FAT" value={`${Math.round(todayLog.fatTotal ?? 0)} g`} />
+      </View>
+      <View style={[styles.row, styles.mt]}>
+        <StatCard label="CARBS" value={`${Math.round(todayLog.carbsTotal ?? 0)} g`} />
+        <View style={styles.gap} />
+        <StatCard label="FIBER" value={`${Math.round(todayLog.fiberTotal ?? 0)} g`} />
+      </View>
+
       {/* ETA card */}
       <View style={[styles.etaCard, styles.mt]}>
         <Text style={styles.etaKg}>🎯 {kgLeft} kg to target</Text>
