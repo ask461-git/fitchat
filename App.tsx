@@ -60,8 +60,12 @@ const ebStyles = StyleSheet.create({
 // ---------------------------------------------------------------------------
 
 export default function App() {
-  const [fontsLoaded] = useFonts({ Montserrat_400Regular, Montserrat_700Bold });
+  const [fontsLoaded, fontError] = useFonts({ Montserrat_400Regular, Montserrat_700Bold });
   const [dbReady, setDbReady] = useState(false);
+
+  if (fontError) {
+    console.log('🚨 FONT ERROR:', fontError);
+  }
 
   const loadProfile = useProfileStore(s => s.loadProfile);
   const loadToday = useDailyLogStore(s => s.loadToday);
@@ -92,6 +96,8 @@ export default function App() {
       await SplashScreen.hideAsync();
     }
   }, [fontsLoaded, dbReady]);
+
+  console.log("🕵️ State Check -> dbReady:", dbReady, "| fontsLoaded:", fontsLoaded);
 
   if (!fontsLoaded || !dbReady) {
     return <Loader />;

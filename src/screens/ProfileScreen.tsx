@@ -148,7 +148,6 @@ export function ProfileScreen(): React.ReactElement {
           </View>
         </View>
       </View>
-      </View>
 
       {apiUsage && (
         <View style={styles.sectionWrap}>
