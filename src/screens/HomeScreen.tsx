@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -40,12 +40,22 @@ export function HomeScreen(): React.ReactElement {
   const eta = etaDate(profile.currentWeightKg, profile.targetWeightKg, allLogs);
   const kgLeft = (profile.currentWeightKg - profile.targetWeightKg).toFixed(1);
 
-  // Simple bar chart data (last 14 days)
+  // Chart data
   const chartLogs = allLogs.slice(-14);
-  const maxAbs = Math.max(
-    ...chartLogs.map(l => Math.abs(getNetCal(l))),
-    1,
-  );
+  const maxDeviation = Math.max(...chartLogs.map(l => Math.abs(getNetCal(l))), 1);
+
+  const recentLogs = useMemo(() => {
+    const logs = [] as any[];
+    for (let i = 1; i <= 7; i++) {
+      const dateStr = dayjs().subtract(i, 'day').format('YYYY-MM-DD');
+      const found = allLogs.find(l => l.date === dateStr);
+      logs.push(found ?? { date: dateStr, workoutCalBurned: 0, proteinTotal: 0, fatTotal: 0, carbsTotal: 0, fiberTotal: 0 });
+    }
+    return logs;
+  }, [allLogs]);
+
+  const proteinTarget = Math.round(profile.currentWeightKg * 1.8);
+  const proteinMax = Math.max(...recentLogs.map(l => Math.round(l.proteinTotal ?? 0)), proteinTarget, 1);
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
@@ -114,32 +124,68 @@ export function HomeScreen(): React.ReactElement {
         </Text>
       </View>
 
-      {/* Bar chart */}
+      {/* Bidirectional Net Calories chart (center axis) */}
       {chartLogs.length >= 2 && (
         <View style={styles.mt}>
           <Text style={styles.chartTitle}>NET CALORIES — LAST 14 DAYS</Text>
-          <View style={styles.chart}>
+          <View style={[styles.chart, { height: 140, position: 'relative', paddingBottom: 0 }]}
+          >
+            {/* center axis */}
+            <View style={[styles.centerLine, { top: 70 }]} />
             {chartLogs.map((log, i) => {
               const net = getNetCal(log);
-              const h = Math.max((Math.abs(net) / maxAbs) * 90, 4);
+              const abs = Math.abs(net);
+              const pixel = Math.max((abs / maxDeviation) * 70, 4); // max half-height 70
+              const label = log.date.slice(8);
               return (
-                <View key={i} style={styles.barWrap}>
-                  <View
-                    style={[
-                      styles.bar,
-                      {
-                        height: h,
-                        backgroundColor: net <= 0 ? COLORS.deficit : COLORS.surplus,
-                      },
-                    ]}
-                  />
-                  <Text style={styles.barDate}>{log.date.slice(8)}</Text>
+                <View key={i} style={styles.bidBarWrap}>
+                  {net <= 0 ? (
+                    <View style={[styles.bidBar, { bottom: 70, height: pixel, backgroundColor: COLORS.deficit }]} />
+                  ) : (
+                    <View style={[styles.bidBar, { top: 70, height: pixel, backgroundColor: COLORS.surplus }]} />
+                  )}
+                  <Text style={styles.barDate}>{label}</Text>
                 </View>
               );
             })}
           </View>
         </View>
       )}
+
+      {/* Protein chart (last 7 days) */}
+      <View style={[styles.mt]}>
+        <Text style={styles.chartTitle}>PROTEIN — LAST 7 DAYS</Text>
+        <View style={[styles.chart, { height: 120, alignItems: 'flex-end', paddingBottom: 22 }]}> 
+          {recentLogs.map((log, i) => {
+            const val = Math.round(log.proteinTotal ?? 0);
+            const h = Math.max((val / proteinMax) * 100, 4);
+            return (
+              <View key={i} style={styles.barWrap}>
+                <View style={[styles.proteinBar, { height: h }]} />
+                <Text style={styles.barDate}>{log.date.slice(8)}</Text>
+              </View>
+            );
+          })}
+          {/* target line */}
+          <View style={[styles.proteinTargetLine, { bottom: `${(1 - proteinTarget / proteinMax) * 100}%` }]} />
+        </View>
+      </View>
+
+      {/* Recent Days macro list (last 7 days) */}
+      <View style={[styles.mt]}>
+        <Text style={styles.chartTitle}>RECENT DAYS — MACROS</Text>
+        {recentLogs.map((log) => (
+          <View key={log.date} style={styles.macroRow}>
+            <Text style={styles.macroDate}>{dayjs(log.date).format('MMM D')}</Text>
+            <View style={styles.macroValues}>
+              <Text style={styles.macroItem}>P {Math.round(log.proteinTotal ?? 0)}g</Text>
+              <Text style={styles.macroItem}>F {Math.round(log.fatTotal ?? 0)}g</Text>
+              <Text style={styles.macroItem}>C {Math.round(log.carbsTotal ?? 0)}g</Text>
+              <Text style={styles.macroItem}>Fi {Math.round(log.fiberTotal ?? 0)}g</Text>
+            </View>
+          </View>
+        ))}
+      </View>
 
       {/* Talk to Kendrick */}
       <TouchableOpacity
@@ -202,6 +248,15 @@ const styles = StyleSheet.create({
   barWrap: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
   bar: { width: '70%', borderRadius: 3 },
   barDate: { color: COLORS.textSecondary, fontSize: 9, marginTop: 3 },
+  centerLine: { position: 'absolute', left: SPACING.sm, right: SPACING.sm, height: 1, backgroundColor: COLORS.divider },
+  bidBarWrap: { flex: 1, alignItems: 'center', justifyContent: 'flex-start' },
+  bidBar: { width: '70%', position: 'absolute', borderRadius: 3 },
+  proteinBar: { width: '70%', backgroundColor: '#4DA6FF', borderRadius: 3 },
+  proteinTargetLine: { position: 'absolute', left: SPACING.sm, right: SPACING.sm, height: 2, backgroundColor: '#316B9A', opacity: 0.6 },
+  macroRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: SPACING.xs, borderBottomWidth: 1, borderBottomColor: COLORS.divider },
+  macroDate: { color: COLORS.textSecondary, width: 90, fontFamily: FONT.bold },
+  macroValues: { flexDirection: 'row', gap: SPACING.sm },
+  macroItem: { color: COLORS.textPrimary, marginRight: SPACING.sm },
   chatBtn: {
     backgroundColor: COLORS.accent,
     borderRadius: RADIUS.md,

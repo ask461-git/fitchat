@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import dayjs from 'dayjs';
 import {
   Alert,
@@ -32,7 +32,17 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 export function WorkoutScreen(): React.ReactElement {
   const navigation = useNavigation<Nav>();
   const { profile } = useProfileStore();
-  const { todayWorkouts, loadTodayWorkouts, loadAllLogs, isLoading, addWorkout } = useDailyLogStore();
+  const { todayWorkouts, loadTodayWorkouts, loadAllLogs, isLoading, addWorkout, allLogs } = useDailyLogStore();
+
+  const recentLogs = useMemo(() => {
+    const logs = [] as any[];
+    for (let i = 1; i <= 7; i++) {
+      const dateStr = dayjs().subtract(i, 'day').format('YYYY-MM-DD');
+      const found = allLogs.find((l: any) => l.date === dateStr);
+      logs.push(found ?? { date: dateStr, workoutCalBurned: 0, proteinTotal: 0, fatTotal: 0, carbsTotal: 0, fiberTotal: 0 });
+    }
+    return logs;
+  }, [allLogs]);
 
   useEffect(() => {
     loadTodayWorkouts();
