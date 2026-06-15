@@ -45,7 +45,8 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
       exercise_type TEXT NOT NULL,
       duration_minutes INTEGER NOT NULL,
       calories_burned INTEGER NOT NULL,
-      notes TEXT NOT NULL DEFAULT ''
+      notes TEXT NOT NULL DEFAULT '',
+      sets_json TEXT NOT NULL DEFAULT ''
     );
 
     CREATE TABLE IF NOT EXISTS chat_messages (
@@ -133,6 +134,9 @@ async function ensureColumns(db: SQLite.SQLiteDatabase) {
     await db.runAsync('ALTER TABLE daily_logs ADD COLUMN protein_total REAL NOT NULL DEFAULT 0');
   } catch (_) {}
   try {
+    await db.runAsync('ALTER TABLE workout_logs ADD COLUMN sets_json TEXT NOT NULL DEFAULT ""');
+  } catch (_) {}
+  try {
     await db.runAsync('ALTER TABLE daily_logs ADD COLUMN fat_total REAL NOT NULL DEFAULT 0');
   } catch (_) {}
   try {
@@ -193,6 +197,7 @@ interface WorkoutRow {
   duration_minutes: number;
   calories_burned: number;
   notes: string;
+  sets_json: string;
 }
 
 interface ChatRow {
@@ -258,6 +263,7 @@ function toWorkout(r: WorkoutRow): WorkoutLog {
     durationMinutes: r.duration_minutes,
     caloriesBurned: r.calories_burned,
     notes: r.notes,
+    sets: r.sets_json ? (JSON.parse(r.sets_json) as { set: number; weightKg?: number; reps?: number }[]) : undefined,
   };
 }
 
@@ -402,11 +408,11 @@ export async function insertWorkout(workout: WorkoutLog): Promise<WorkoutLog> {
   const db = await getDb();
   const res = await db.runAsync(
     `INSERT INTO workout_logs
-       (date, exercise_type, duration_minutes, calories_burned, notes)
-     VALUES (?, ?, ?, ?, ?)`,
+       (date, exercise_type, duration_minutes, calories_burned, notes, sets_json)
+     VALUES (?, ?, ?, ?, ?, ?)`,
     [
       workout.date, workout.exerciseType, workout.durationMinutes,
-      workout.caloriesBurned, workout.notes,
+      workout.caloriesBurned, workout.notes, JSON.stringify(workout.sets ?? []),
     ],
   );
   return { ...workout, id: res.lastInsertRowId };
@@ -418,6 +424,12 @@ export async function getWorkoutsForDate(date: string): Promise<WorkoutLog[]> {
     'SELECT * FROM workout_logs WHERE date = ? ORDER BY id ASC',
     [date],
   );
+  return rows.map(toWorkout);
+}
+
+export async function getAllWorkouts(): Promise<WorkoutLog[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<WorkoutRow>('SELECT * FROM workout_logs ORDER BY date ASC, id ASC');
   return rows.map(toWorkout);
 }
 

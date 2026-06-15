@@ -13,11 +13,15 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { EXERCISE_KEYS, estimateWorkoutCalories, type WorkoutLog } from '../models';
-import { estimateCardio } from '../services/gemini';
+import type { WorkoutLog } from '../models';
+import { WORKOUT_TEMPLATES } from '../data/workoutTemplates';
+import { estimateCardioForUser, confirmAndLogCardio } from '../services/cardioFlow';
+import type { ExerciseInput } from '../utils/calorieCalculator';
+import { calculateTotalSessionCalories } from '../utils/calorieCalculator';
 import { useProfileStore } from '../store/profileStore';
 import { useDailyLogStore } from '../store/dailyLogStore';
 import { Loader } from '../components/Loader';
+import { ExerciseHistoryModal } from '../components/ExerciseHistoryModal';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme/theme';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 
@@ -26,243 +30,236 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 export function WorkoutScreen(): React.ReactElement {
   const navigation = useNavigation<Nav>();
   const { profile } = useProfileStore();
-  const { todayWorkouts, allLogs, isLoading, addWorkout, deleteWorkout, loadAllLogs, loadTodayWorkouts } = useDailyLogStore();
-
-  const [exercise, setExercise] = useState<string>(EXERCISE_KEYS[0]);
-  const [duration, setDuration] = useState('');
-  const [notes, setNotes] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [editingWorkout, setEditingWorkout] = useState<WorkoutLog | null>(null);
-  // Cardio inputs
-  const [cardioActivity, setCardioActivity] = useState('');
-  const [cardioIntensity, setCardioIntensity] = useState('');
-  const [cardioDuration, setCardioDuration] = useState('');
-  const [cardioEstimate, setCardioEstimate] = useState<number | null>(null);
-  const [cardioEstimateText, setCardioEstimateText] = useState('');
-  const scrollRef = useRef<ScrollView>(null);
+  const { todayWorkouts, loadTodayWorkouts, loadAllLogs, isLoading, addWorkout } = useDailyLogStore();
 
   useEffect(() => {
     loadTodayWorkouts();
     loadAllLogs();
   }, [loadAllLogs, loadTodayWorkouts]);
 
+  // Default template selection by weekday
+  const [selectedTemplateIndex, setSelectedTemplateIndex] = useState<number>(() => {
+    const dow = dayjs().day(); // 0 Sun .. 6 Sat
+    switch (dow) {
+      case 1: return 0; // Mon -> Push
+      case 2: return 1; // Tue -> Pull
+      case 3: return 2; // Wed -> Cardio
+      case 4: return 3; // Thu -> Legs
+      case 5: return 4; // Fri -> Hypertrophy
+      default: return 0;
+    }
+  });
+
+  const scrollRef = useRef<ScrollView>(null);
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [editingWorkout, setEditingWorkout] = useState<WorkoutLog | null>(null);
+  const [historyExercise, setHistoryExercise] = useState<string | null>(null);
+
+  // Cardio draft (not persisted until confirm)
+  const [cardioDraft, setCardioDraft] = useState<{ activity: string; intensity?: string; duration?: string; estimate?: number; note?: string }>({ activity: '', intensity: '', duration: '' });
+
+  // Lifting drafts keyed by templateIndex-exerciseIndex
+  const [liftingDraft, setLiftingDraft] = useState<Record<string, { setsArray: { weight: string; reps: string }[]; durationActive: string; durationRest: string }>>({});
+
   if (isLoading || !profile) return <Loader />;
 
-  const durationN = parseInt(duration, 10) || 0;
-  const estimate = estimateWorkoutCalories(exercise, durationN, profile.currentWeightKg);
+  const selectedTemplate = WORKOUT_TEMPLATES[selectedTemplateIndex];
 
-  const recentLogs = [];
-  for (let i = 1; i <= 7; i++) {
-    const dateStr = dayjs().subtract(i, 'day').format('YYYY-MM-DD');
-    const found = allLogs.find(l => l.date === dateStr);
-    recentLogs.push(found ?? {
-      date: dateStr,
-      breakfastCal: 0,
-      morningSnackCal: 0,
-      lunchCal: 0,
-      eveningSnackCal: 0,
-      dinnerCal: 0,
-      workoutCalBurned: 0,
-      tdeeSnapshot: 0,
-    });
-  }
-
-  function handleEdit(w: WorkoutLog) {
-    setEditingWorkout(w);
-    setExercise(w.exerciseType);
-    setDuration(String(w.durationMinutes));
-    setNotes(w.notes || '');
-    scrollRef.current?.scrollTo({ y: 0, animated: true });
-  }
-
-  function handleCancelEdit() {
-    setEditingWorkout(null);
-    setExercise(EXERCISE_KEYS[0]);
-    setDuration('');
-    setNotes('');
-  }
-
-  async function handleLog() {
-    // Cardio logging
-    if (exercise === 'Cardio') {
-      if (!cardioDuration || !cardioEstimate) return Alert.alert('Required', 'Estimate cardio first.');
-      setSaving(true);
-      await addWorkout({
-        date: dayjs().format('YYYY-MM-DD'),
-        exerciseType: `Cardio - ${cardioActivity || 'Cardio'}`,
-        durationMinutes: parseInt(cardioDuration, 10) || 0,
-        caloriesBurned: cardioEstimate || 0,
-        notes: `Intensity ${cardioIntensity || ''}`.trim(),
-      });
-      setCardioActivity(''); setCardioIntensity(''); setCardioDuration(''); setCardioEstimate(null); setCardioEstimateText('');
-      setSaving(false);
-      return;
-    }
-
-    if (durationN < 1) return Alert.alert('Required', 'Enter duration in minutes.');
+  async function handleConfirmCardio() {
+    if (!cardioDraft.estimate) return Alert.alert('No estimate', 'Please estimate calories before confirming.');
     setSaving(true);
-    if (editingWorkout) {
-      // Delete the old entry (will subtract old calories) then insert updated.
-      await deleteWorkout(editingWorkout);
-      setEditingWorkout(null);
+    try {
+      await confirmAndLogCardio({ activity: cardioDraft.activity, intensity: cardioDraft.intensity, durationMinutes: Number(cardioDraft.duration || 0) }, cardioDraft.estimate || 0, cardioDraft.note || '');
+      setCardioDraft({ activity: '', intensity: '', duration: '' });
+      await loadTodayWorkouts();
+    } catch (e) {
+      Alert.alert('Save failed', String(e));
     }
-    await addWorkout({
-      date: dayjs().format('YYYY-MM-DD'),
-      exerciseType: exercise,
-      durationMinutes: durationN,
-      caloriesBurned: estimate,
-      notes: notes.trim(),
-    });
-    setDuration('');
-    setNotes('');
     setSaving(false);
   }
 
-  async function handleDelete(workout: WorkoutLog) {
-    Alert.alert('Delete workout?', '', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: () => deleteWorkout(workout),
-      },
-    ]);
+  async function handleEstimateCardio() {
+    if (!cardioDraft.activity || !cardioDraft.duration) return Alert.alert('Missing fields', 'Provide activity and duration.');
+    try {
+      const dur = Number(cardioDraft.duration || 0);
+      const intensityVal = cardioDraft.intensity ? Number(cardioDraft.intensity) : undefined;
+      const res = await estimateCardioForUser({ activity: cardioDraft.activity, intensity: intensityVal, durationMinutes: dur }, profile.currentWeightKg);
+      setCardioDraft(d => ({ ...d, estimate: Math.round(res.calories), note: res.note || res.calories?.toString?.() }));
+    } catch (e) {
+      Alert.alert('Estimate failed', String(e));
+    }
+  }
+
+  // Compute draft lifting estimate using calorie calculator
+  const liftingInputs: ExerciseInput[] = selectedTemplate.exercises.map((ex, idx) => {
+    const key = `${selectedTemplateIndex}-${idx}`;
+    const draft = liftingDraft[key] ?? { sets: String(ex.targetSets), durationActive: '0', durationRest: '0' };
+    return {
+      metActive: ex.defaultMetActive,
+      durationActive: parseFloat(draft.durationActive || '0') || 0,
+      metRest: ex.defaultMetRest,
+      durationRest: parseFloat(draft.durationRest || '0') || 0,
+    };
+  });
+  const totalSessionMinutes = liftingInputs.reduce((s, it) => s + it.durationActive + it.durationRest, 0);
+  const liftingCalc = calculateTotalSessionCalories(liftingInputs, totalSessionMinutes, profile.currentWeightKg);
+
+  // Running total: logged workouts + draft estimate (cardio or lifting)
+  const loggedTotal = (todayWorkouts ?? []).reduce((s, w) => s + (w.caloriesBurned || 0), 0);
+  const draftTotal = selectedTemplate.dayName.includes('Cardio') ? (cardioDraft.estimate || 0) : liftingCalc.grandTotal;
+
+  async function handleLogLiftingSession() {
+    setSaving(true);
+    try {
+      // For each exercise in the template, construct a WorkoutLog and persist
+      for (let idx = 0; idx < selectedTemplate.exercises.length; idx++) {
+        const ex = selectedTemplate.exercises[idx];
+        const key = `${selectedTemplateIndex}-${idx}`;
+        const draft = liftingDraft[key] ?? { setsArray: Array.from({ length: ex.targetSets }).map(() => ({ weight: '', reps: '' })), durationActive: '0', durationRest: '0' };
+
+        const setsStructured = draft.setsArray.map((s, i) => ({ set: i + 1, weightKg: s.weight ? Number(s.weight) : undefined, reps: s.reps ? Number(s.reps) : undefined }));
+
+        const input: ExerciseInput = {
+          metActive: ex.defaultMetActive,
+          durationActive: parseFloat(draft.durationActive || '0') || 0,
+          metRest: ex.defaultMetRest,
+          durationRest: parseFloat(draft.durationRest || '0') || 0,
+        };
+        const calc = calculateTotalSessionCalories([input], input.durationActive + input.durationRest, profile.currentWeightKg);
+
+        await addWorkout({
+          date: dayjs().format('YYYY-MM-DD'),
+          exerciseType: ex.name,
+          durationMinutes: Math.round(input.durationActive + input.durationRest),
+          caloriesBurned: calc.grandTotal,
+          sets: setsStructured,
+          notes: notes || '',
+        } as WorkoutLog);
+      }
+      // refresh
+      await loadTodayWorkouts();
+    } catch (e) {
+      Alert.alert('Save failed', String(e));
+    }
+    setSaving(false);
   }
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView ref={scrollRef} style={styles.root} contentContainerStyle={styles.content}>
         <Text style={styles.title}>{editingWorkout ? 'EDIT WORKOUT' : 'LOG WORKOUT'}</Text>
 
-        {/* Editing banner */}
-        {editingWorkout && (
-          <View style={styles.editBanner}>
-            <Text style={styles.editBannerText}>Editing: {editingWorkout.exerciseType}</Text>
-            <TouchableOpacity onPress={handleCancelEdit}>
-              <Text style={styles.editBannerCancel}>CANCEL</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* Exercise picker */}
-        <View style={styles.exerciseList}>
-          {EXERCISE_KEYS.map(ex => (
-            <TouchableOpacity
-              key={ex}
-              style={[styles.exBtn, exercise === ex && styles.exBtnActive]}
-              onPress={() => setExercise(ex)}
-            >
-              <Text
-                style={[styles.exBtnText, exercise === ex && styles.exBtnTextActive]}
-                numberOfLines={1}
-              >
-                {ex}
-              </Text>
+        {/* Day selector */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: SPACING.md }}>
+          {WORKOUT_TEMPLATES.map((t, idx) => (
+            <TouchableOpacity key={t.dayName} onPress={() => setSelectedTemplateIndex(idx)} style={[styles.dayBtn, idx === selectedTemplateIndex && styles.dayBtnActive]}>
+              <Text style={[styles.dayBtnText, idx === selectedTemplateIndex && styles.dayBtnTextActive]} numberOfLines={1}>{t.dayName}</Text>
             </TouchableOpacity>
           ))}
-          <TouchableOpacity
-            key="Cardio"
-            style={[styles.exBtn, exercise === 'Cardio' && styles.exBtnActive]}
-            onPress={() => setExercise('Cardio')}
-          >
-            <Text style={[styles.exBtnText, exercise === 'Cardio' && styles.exBtnTextActive]}>Cardio</Text>
-          </TouchableOpacity>
-        </View>
+        </ScrollView>
 
-        {/* Cardio inputs (when Cardio selected) */}
-        {exercise === 'Cardio' ? (
+        {/* Template content */}
+        {selectedTemplate.dayName.includes('Cardio') ? (
           <>
             <Text style={styles.fieldLabel}>ACTIVITY</Text>
-            <TextInput style={styles.input} value={cardioActivity} onChangeText={setCardioActivity} placeholder="Elliptical" placeholderTextColor={COLORS.textSecondary} />
+            <TextInput style={styles.input} value={cardioDraft.activity} onChangeText={(v) => setCardioDraft(d => ({ ...d, activity: v }))} placeholder="Elliptical" placeholderTextColor={COLORS.textSecondary} />
             <Text style={styles.fieldLabel}>INTENSITY / RESISTANCE</Text>
-            <TextInput style={styles.input} value={cardioIntensity} onChangeText={setCardioIntensity} keyboardType="number-pad" placeholder="eg. 25" placeholderTextColor={COLORS.textSecondary} />
+            <TextInput style={styles.input} value={cardioDraft.intensity} onChangeText={(v) => setCardioDraft(d => ({ ...d, intensity: v }))} keyboardType="number-pad" placeholder="eg. 25" placeholderTextColor={COLORS.textSecondary} />
             <Text style={styles.fieldLabel}>DURATION (minutes)</Text>
-            <TextInput style={styles.input} value={cardioDuration} onChangeText={setCardioDuration} keyboardType="number-pad" placeholder="25" placeholderTextColor={COLORS.textSecondary} />
+            <TextInput style={styles.input} value={cardioDraft.duration} onChangeText={(v) => setCardioDraft(d => ({ ...d, duration: v }))} keyboardType="number-pad" placeholder="25" placeholderTextColor={COLORS.textSecondary} />
+
             <View style={{ flexDirection: 'row', gap: 8 }}>
-              <TouchableOpacity
-                style={[styles.btn, !(cardioActivity && cardioDuration) && styles.btnDisabled]}
-                onPress={async () => {
-                  if (!cardioActivity || !cardioDuration) return;
-                  try {
-                    const dur = parseInt(cardioDuration, 10) || 0;
-                    const intensityVal = cardioIntensity ? Number(cardioIntensity) : undefined;
-                    const res = await estimateCardio({ activity: cardioActivity, intensity: intensityVal, durationMinutes: dur, weightKg: profile.currentWeightKg });
-                    setCardioEstimate(Math.round(res.calories));
-                    setCardioEstimateText(res.text);
-                  } catch (e) {
-                    Alert.alert('Estimate failed', String(e));
-                  }
-                }}
-              >
+              <TouchableOpacity style={[styles.btn, !(cardioDraft.activity && cardioDraft.duration) && styles.btnDisabled]} onPress={handleEstimateCardio}>
                 <Text style={styles.btnText}>Estimate via Gemini</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.btnOutline} onPress={() => { setCardioActivity(''); setCardioIntensity(''); setCardioDuration(''); setCardioEstimate(null); setCardioEstimateText(''); }}>
+              <TouchableOpacity style={styles.btnOutline} onPress={() => setCardioDraft({ activity: '', intensity: '', duration: '' })}>
                 <Text style={styles.btnOutlineText}>Clear</Text>
               </TouchableOpacity>
             </View>
-            {cardioEstimate != null && (
-              <View style={styles.estimateRow}>
-                <Text style={styles.estimateText}>≈ {cardioEstimate} kcal — {cardioEstimateText}</Text>
+
+            {cardioDraft.estimate != null && (
+              <View style={styles.draftCard}>
+                <Text style={styles.draftText}>Draft: {cardioDraft.activity} · {cardioDraft.duration} min · ≈ {cardioDraft.estimate} kcal</Text>
+                <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.sm }}>
+                  <TouchableOpacity style={[styles.btn, { flex: 1 }]} onPress={handleConfirmCardio} disabled={saving}>
+                    <Text style={styles.btnText}>{saving ? 'SAVING…' : 'Confirm & Log'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.btnOutline, { flex: 1 }]} onPress={() => setCardioDraft({ activity: '', intensity: '', duration: '' })}>
+                    <Text style={styles.btnOutlineText}>Discard</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             )}
           </>
         ) : (
           <>
-            {/* Duration */}
-            <Text style={styles.fieldLabel}>DURATION (minutes)</Text>
-            <TextInput
-              style={styles.input}
-              value={duration}
-              onChangeText={setDuration}
-              keyboardType="number-pad"
-              placeholder="30"
-              placeholderTextColor={COLORS.textSecondary}
-            />
+            {selectedTemplate.exercises.map((ex, idx) => {
+              const key = `${selectedTemplateIndex}-${idx}`;
+              const draft = liftingDraft[key] ?? { setsArray: Array.from({ length: ex.targetSets }).map(() => ({ weight: '', reps: '' })), durationActive: '0', durationRest: '0' };
+              return (
+                <View key={key} style={styles.liftRow}>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={styles.workoutName}>{ex.name}</Text>
+                      <TouchableOpacity onPress={() => setHistoryExercise(ex.name)}>
+                        <Text style={{ color: COLORS.accent }}>📈</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={styles.workoutNotes}>{ex.plan}</Text>
+
+                    {draft.setsArray.map((s, si) => (
+                      <View key={`${key}-set-${si}`} style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.xs }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.fieldLabel}>Set {si + 1} — Weight (kg)</Text>
+                          <TextInput style={styles.input} value={s.weight} onChangeText={(v) => setLiftingDraft(d => ({ ...d, [key]: { ...draft, setsArray: draft.setsArray.map((xx, i) => i === si ? { ...xx, weight: v } : xx) } }))} keyboardType="number-pad" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.fieldLabel}>Reps</Text>
+                          <TextInput style={styles.input} value={s.reps} onChangeText={(v) => setLiftingDraft(d => ({ ...d, [key]: { ...draft, setsArray: draft.setsArray.map((xx, i) => i === si ? { ...xx, reps: v } : xx) } }))} keyboardType="number-pad" />
+                        </View>
+                      </View>
+                    ))}
+
+                    <View style={{ flexDirection: 'row', marginTop: SPACING.sm, gap: SPACING.sm }}>
+                      <TouchableOpacity style={styles.btnOutline} onPress={() => setLiftingDraft(d => ({ ...d, [key]: { ...draft, setsArray: [...draft.setsArray, { weight: '', reps: '' }] } }))}>
+                        <Text style={styles.btnOutlineText}>Add Set</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={{ flexDirection: 'row', marginTop: SPACING.xs, gap: SPACING.sm }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.fieldLabel}>Active (min)</Text>
+                        <TextInput style={styles.input} value={draft.durationActive} onChangeText={(v) => setLiftingDraft(d => ({ ...d, [key]: { ...draft, durationActive: v } }))} keyboardType="number-pad" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.fieldLabel}>Rest (min)</Text>
+                        <TextInput style={styles.input} value={draft.durationRest} onChangeText={(v) => setLiftingDraft(d => ({ ...d, [key]: { ...draft, durationRest: v } }))} keyboardType="number-pad" />
+                      </View>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
           </>
         )}
 
-        {/* Estimate */}
-        {durationN > 0 && (
-          <View style={styles.estimateRow}>
-            <Text style={styles.estimateText}>
-              ≈ {estimate} kcal estimated
-            </Text>
-          </View>
-        )}
+        {/* Draft estimate preview */}
+        <View style={styles.estimateRow}>
+          <Text style={styles.estimateText}>Session estimate ≈ {selectedTemplate.dayName.includes('Cardio') ? (cardioDraft.estimate ?? 0) : liftingCalc.grandTotal} kcal</Text>
+        </View>
 
-        {/* Notes */}
         <Text style={[styles.fieldLabel, { marginTop: SPACING.sm }]}>NOTES (optional)</Text>
-        <TextInput
-          style={[styles.input, { height: 72 }]}
-          value={notes}
-          onChangeText={setNotes}
-          placeholder="Eg. 5km run at moderate pace"
-          placeholderTextColor={COLORS.textSecondary}
-          multiline
-        />
+        <TextInput style={[styles.input, { height: 72 }]} value={notes} onChangeText={setNotes} placeholder="Eg. Felt strong today" placeholderTextColor={COLORS.textSecondary} multiline />
 
-        {/* Actions */}
-        <View style={styles.actionRow}>
-          <TouchableOpacity
-            style={[styles.btn, saving && styles.btnDisabled]}
-            onPress={handleLog}
-            disabled={saving}
-          >
-            <Text style={styles.btnText}>
-              {saving ? 'SAVING…' : editingWorkout ? 'UPDATE WORKOUT' : 'LOG WORKOUT'}
-            </Text>
+        {/* Actions: Log Session + Ask Kendrick */}
+        <View style={[styles.actionRow, { marginTop: SPACING.sm }] }>
+          <TouchableOpacity style={[styles.btn, saving && styles.btnDisabled]} onPress={handleLogLiftingSession} disabled={saving}>
+            <Text style={styles.btnText}>{saving ? 'SAVING…' : 'LOG SESSION'}</Text>
           </TouchableOpacity>
-          {!editingWorkout && (
-            <TouchableOpacity
-              style={styles.btnOutline}
-              onPress={() => navigation.navigate('Chat')}
-            >
-              <Text style={styles.btnOutlineText}>ASK KENDRICK</Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity style={styles.btnOutline} onPress={() => navigation.navigate('Chat')}>
+            <Text style={styles.btnOutlineText}>ASK KENDRICK</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Today's workouts */}
@@ -270,180 +267,54 @@ export function WorkoutScreen(): React.ReactElement {
           <>
             <Text style={[styles.title, { marginTop: SPACING.lg }]}>TODAY'S WORKOUTS</Text>
             {todayWorkouts.map(w => (
-              <View key={w.id} style={[styles.workoutCard, editingWorkout?.id === w.id && styles.workoutCardEditing]}>
+              <View key={w.id} style={[styles.workoutCard] }>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.workoutName}>{w.exerciseType}</Text>
-                  <Text style={styles.workoutMeta}>
-                    {w.durationMinutes} min · {w.caloriesBurned} kcal
-                  </Text>
-                  {w.notes ? (
-                    <Text style={styles.workoutNotes}>{w.notes}</Text>
-                  ) : null}
+                  <Text style={styles.workoutMeta}>{w.durationMinutes} min · {w.caloriesBurned} kcal</Text>
+                  {w.notes ? <Text style={styles.workoutNotes}>{w.notes}</Text> : null}
                 </View>
-                <TouchableOpacity onPress={() => handleEdit(w)} style={styles.iconBtn}>
-                  <Text style={styles.editBtn}>✎</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => handleDelete(w)} style={styles.iconBtn}>
-                  <Text style={styles.deleteBtn}>✕</Text>
-                </TouchableOpacity>
               </View>
             ))}
           </>
         )}
-
-        {recentLogs.length > 0 && (
-          <>
-            <Text style={[styles.title, { marginTop: SPACING.lg }]}>LAST 7 DAYS</Text>
-            <View style={styles.historyCard}>
-              {recentLogs.map((log, idx) => {
-                const isLast = idx === recentLogs.length - 1;
-                return (
-                  <View key={log.date}>
-                    <View style={styles.historyRow}>
-                      <View>
-                        <Text style={styles.historyDate}>{dayjs(log.date).format('ddd, MMM D')}</Text>
-                        <Text style={styles.historyBurned}>
-                          {log.workoutCalBurned > 0 ? `–${log.workoutCalBurned} burned` : 'No workouts'}
-                        </Text>
-                      </View>
-                    </View>
-                    {!isLast && <View style={styles.divider} />}
-                  </View>
-                );
-              })}
-            </View>
-          </>
-        )}
       </ScrollView>
+
+      {/* Sticky footer with running total */}
+      <View style={styles.footer}>
+        <Text style={styles.footerText}>Logged: {loggedTotal} kcal · Draft: {draftTotal} kcal · Session ≈ {loggedTotal + draftTotal} kcal</Text>
+      </View>
+      {historyExercise && (
+        <ExerciseHistoryModal visible={!!historyExercise} onClose={() => setHistoryExercise(null)} exerciseName={historyExercise} />
+      )}
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.background },
-  content: { padding: SPACING.md, paddingBottom: SPACING.xl },
-  title: {
-    color: COLORS.textSecondary,
-    fontFamily: FONT.bold,
-    fontSize: 11,
-    letterSpacing: 0.8,
-    marginBottom: SPACING.sm,
-  },
-  exerciseList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: SPACING.xs,
-    marginBottom: SPACING.md,
-  },
-  exBtn: {
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.xs,
-    borderRadius: RADIUS.xl,
-    borderWidth: 1,
-    borderColor: COLORS.divider,
-    backgroundColor: COLORS.surfaceAlt,
-  },
-  exBtnActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
-  exBtnText: { color: COLORS.textSecondary, fontFamily: FONT.bold, fontSize: 12 },
-  exBtnTextActive: { color: COLORS.black },
-  fieldLabel: {
-    color: COLORS.textSecondary,
-    fontFamily: FONT.bold,
-    fontSize: 12,
-    letterSpacing: 0.5,
-    marginBottom: SPACING.xs,
-  },
-  input: {
-    backgroundColor: COLORS.surfaceAlt,
-    color: COLORS.textPrimary,
-    borderRadius: RADIUS.md,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: 12,
-    fontSize: 15,
-    fontFamily: FONT.regular,
-    borderWidth: 1,
-    borderColor: COLORS.divider,
-    marginBottom: SPACING.sm,
-  },
-  estimateRow: {
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.md,
-    padding: SPACING.sm,
-    marginBottom: SPACING.sm,
-    alignItems: 'center',
-  },
+  content: { padding: SPACING.md, paddingBottom: SPACING.xl + 80 },
+  title: { color: COLORS.textSecondary, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.8, marginBottom: SPACING.sm },
+  dayBtn: { paddingHorizontal: SPACING.md, paddingVertical: SPACING.xs, borderRadius: RADIUS.xl, borderWidth: 1, borderColor: COLORS.divider, backgroundColor: COLORS.surfaceAlt, marginRight: SPACING.xs },
+  dayBtnActive: { backgroundColor: COLORS.accent, borderColor: COLORS.accent },
+  dayBtnText: { color: COLORS.textSecondary, fontFamily: FONT.bold, fontSize: 12 },
+  dayBtnTextActive: { color: COLORS.black },
+  fieldLabel: { color: COLORS.textSecondary, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.5, marginBottom: SPACING.xs },
+  input: { backgroundColor: COLORS.surfaceAlt, color: COLORS.textPrimary, borderRadius: RADIUS.md, paddingHorizontal: SPACING.md, paddingVertical: 12, fontSize: 15, fontFamily: FONT.regular, borderWidth: 1, borderColor: COLORS.divider, marginBottom: SPACING.sm },
+  estimateRow: { backgroundColor: COLORS.surface, borderRadius: RADIUS.md, padding: SPACING.sm, marginBottom: SPACING.sm, alignItems: 'center' },
   estimateText: { color: COLORS.accent, fontFamily: FONT.bold, fontSize: 14 },
-  actionRow: { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.xs },
-  btn: {
-    flex: 1,
-    backgroundColor: COLORS.accent,
-    borderRadius: RADIUS.md,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
+  actionRow: { flexDirection: 'row', gap: SPACING.sm },
+  btn: { flex: 1, backgroundColor: COLORS.accent, borderRadius: RADIUS.md, paddingVertical: 14, alignItems: 'center' },
   btnDisabled: { opacity: 0.6 },
   btnText: { color: COLORS.black, fontFamily: FONT.bold, fontSize: 13 },
-  btnOutline: {
-    flex: 1,
-    borderRadius: RADIUS.md,
-    paddingVertical: 14,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.accent,
-  },
+  btnOutline: { flex: 1, borderRadius: RADIUS.md, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: COLORS.accent },
   btnOutlineText: { color: COLORS.accent, fontFamily: FONT.bold, fontSize: 13 },
-  workoutCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.surfaceAlt,
-    borderRadius: RADIUS.md,
-    padding: SPACING.md,
-    marginBottom: SPACING.xs,
-  },
-  workoutCardEditing: {
-    borderWidth: 1,
-    borderColor: COLORS.accent,
-  },
+  draftCard: { backgroundColor: COLORS.surface, borderRadius: RADIUS.md, padding: SPACING.md, marginTop: SPACING.sm },
+  draftText: { color: COLORS.textPrimary, fontFamily: FONT.bold },
+  liftRow: { backgroundColor: COLORS.surfaceAlt, borderRadius: RADIUS.md, padding: SPACING.md, marginBottom: SPACING.sm },
+  workoutCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.surfaceAlt, borderRadius: RADIUS.md, padding: SPACING.md, marginBottom: SPACING.xs },
   workoutName: { color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 14 },
   workoutMeta: { color: COLORS.accent, fontFamily: FONT.regular, fontSize: 12, marginTop: 2 },
   workoutNotes: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 11, marginTop: 2 },
-  iconBtn: { paddingLeft: SPACING.sm },
-  editBtn: { color: COLORS.accent, fontSize: 16 },
-  deleteBtn: { color: COLORS.surplus, fontSize: 16 },
-  editBanner: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.md,
-    padding: SPACING.sm,
-    marginBottom: SPACING.md,
-    borderLeftWidth: 3,
-    borderLeftColor: COLORS.accent,
-  },
-  editBannerText: { color: COLORS.textPrimary, fontFamily: FONT.regular, fontSize: 13 },
-  editBannerCancel: { color: COLORS.surplus, fontFamily: FONT.bold, fontSize: 12 },
-  historyCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.md,
-  },
-  historyRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: SPACING.sm,
-  },
-  historyDate: {
-    color: COLORS.textPrimary,
-    fontFamily: FONT.bold,
-    fontSize: 13,
-  },
-  historyBurned: {
-    color: COLORS.textSecondary,
-    fontFamily: FONT.regular,
-    fontSize: 12,
-    marginTop: SPACING.xs,
-  },
-  divider: { height: 1, backgroundColor: COLORS.divider },
+  footer: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: COLORS.surface, padding: SPACING.md, borderTopWidth: 1, borderTopColor: COLORS.divider },
+  footerText: { textAlign: 'center', color: COLORS.textPrimary, fontFamily: FONT.bold },
 });

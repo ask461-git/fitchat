@@ -84,6 +84,8 @@ export interface WorkoutLog {
   exerciseType: string;
   durationMinutes: number;
   caloriesBurned: number;
+  // structured sets data: array of { set, weightKg, reps }
+  sets?: { set: number; weightKg?: number; reps?: number }[];
   notes: string;
 }
 
