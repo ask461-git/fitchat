@@ -75,6 +75,7 @@ function TabNavigator() {
         name="Workout"
         component={WorkoutScreen}
         options={{
+          title: 'Exercise/Gym',
           tabBarIcon: ({ focused }) => <TabIcon name="💪" focused={focused} />,
         }}
       />
