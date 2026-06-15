@@ -23,6 +23,13 @@ export async function estimateCardioForUser(input: CardioInput, weightKg = 89): 
     distance: input.distance,
     weightKg,
   });
+  // Extra safety: if Gemini returned an implausible value, compute a simple fallback and log the issue.
+  if (!res || !res.calories || res.calories <= 1) {
+    const fallback = Math.round(input.durationMinutes * 8);
+    console.error('Cardio estimate parse issue — using fallback. input:', input, 'geminiText:', res?.text, 'fallback:', fallback);
+    return { calories: fallback, note: `fallback:${fallback}` };
+  }
+
   return { calories: res.calories, note: res.text };
 }
 

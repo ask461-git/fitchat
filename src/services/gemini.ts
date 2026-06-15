@@ -330,19 +330,20 @@ export async function estimateCardio(params: {
 }): Promise<{ calories: number; text: string }> {
   const { activity, intensity, durationMinutes, weightKg } = params;
   const distanceLine = params.distance ? `Distance: ${params.distance}\n` : '';
-  const prompt = `Estimate calories burned for the following activity.
+  const prompt = `You are a calculator. You must respond ONLY with a valid, raw JSON object. Do not include markdown formatting, backticks, or conversational text. The JSON format must be exactly: {"calories": , "note": ""}.
+Estimate calories burned for the following activity.
 Activity: ${activity}
 Intensity/Incline/Resistance: ${intensity ?? 'N/A'}
 Duration (minutes): ${durationMinutes}
 ${distanceLine}Weight (kg): ${weightKg}
 
-Answer with a single JSON object exactly like: {"calories": 123.45, "note": "brief explanation"}`;
+Return only the JSON object.`;
 
   const res = await fetch(`${BASE_URL}?key=${API_KEY}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      system_instruction: { parts: [{ text: 'You are a precise exercise physiologist. Answer concisely.' }] },
+      system_instruction: { parts: [{ text: 'You are a calculator. Respond ONLY with raw JSON as specified by the user prompt.' }] },
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       generation_config: { temperature: 0, max_output_tokens: 200 },
     }),
@@ -354,26 +355,52 @@ Answer with a single JSON object exactly like: {"calories": 123.45, "note": "bri
 
   const data: any = await res.json();
   const parts: any[] = data?.candidates?.[0]?.content?.parts ?? [];
-  const text = parts.map(p => p.text || '').join('\n').trim();
+  let text = parts.map(p => p.text || '').join('\n').trim();
 
-  // Try to parse JSON from the response text.
-  let calories = 0;
+  // Clean the response: strip markdown code fences, language tags, and stray backticks.
+  // Examples to remove: ```json ... ```, ``` ... ```, `json\n{...}`, and inline backticks.
   try {
-    const m = text.match(/\{[\s\S]*\}/);
-    if (m) {
-      const obj = JSON.parse(m[0]);
-      calories = Number(obj.calories) || 0;
-    } else {
-      // Fallback: extract first number
-      const num = text.match(/([0-9]+(\.[0-9]+)?)/);
-      calories = num ? Number(num[1]) : 0;
+    // Remove fenced code blocks ```...```
+    text = text.replace(/```[\s\S]*?```/g, (m) => {
+      // If the fence contains JSON, return the inner content without fences
+      const inner = m.replace(/```\s*json\s*/i, '').replace(/```/g, '');
+      return inner;
+    });
+    // Remove single backticks
+    text = text.replace(/`/g, '');
+    // Trim any leading/trailing non-json text before the first '{' and after the last '}'
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      text = text.slice(firstBrace, lastBrace + 1);
     }
-  } catch (e) {
+  } catch (cleanErr) {
+    console.error('Error cleaning Gemini response:', cleanErr, 'rawParts:', parts);
+  }
+
+  // Try to parse JSON from the cleaned text.
+  let calories = 0;
+  let parsedNote = '';
+  try {
+    const obj = JSON.parse(text);
+    calories = Number(obj.calories) || 0;
+    parsedNote = typeof obj.note === 'string' ? obj.note : '';
+  } catch (parseErr) {
+    console.error('Failed to parse JSON from Gemini response:', parseErr, 'cleanedText:', text);
+    // Safe fallback: if parsing failed, try to extract the first number present
     const num = text.match(/([0-9]+(\.[0-9]+)?)/);
     calories = num ? Number(num[1]) : 0;
   }
 
-  return { calories, text };
+  // If the parsed calories are missing or implausibly low (<=1), compute a safe fallback using a simple heuristic.
+  if (!calories || calories <= 1) {
+    const fallback = Math.max(1, Math.round(durationMinutes * 8)); // e.g., 15min -> 120 kcal
+    console.error(`Gemini returned implausible calories (${calories}). Using fallback estimate: ${fallback} kcal. cleanedText:`, text);
+    calories = fallback;
+    parsedNote = parsedNote || 'fallback estimate due to parse or implausible value';
+  }
+
+  return { calories, text: parsedNote || text };
 }
 
 // Quick heuristic estimator for macros when not provided (grams).
