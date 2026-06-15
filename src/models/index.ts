@@ -61,8 +61,9 @@ export function getTotalIntake(log: DailyLog): number {
 }
 
 /** Negative value = calorie deficit (good for fat loss). */
-export function getNetCal(log: DailyLog): number {
-  return getTotalIntake(log) - Math.round(log.tdeeSnapshot) - log.workoutCalBurned;
+export function getNetCal(log: DailyLog, tdeeOverride?: number): number {
+  const tdee = typeof tdeeOverride === 'number' ? tdeeOverride : Math.round(log.tdeeSnapshot);
+  return getTotalIntake(log) - tdee - log.workoutCalBurned;
 }
 
 export function getMealCal(log: DailyLog, category: MealCategory | string): number {

@@ -15,6 +15,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import { MEAL_CATEGORIES, type MealCategory, type DailyLog, type MealEntry, getNetCal, getTotalIntake, getMealCal } from '../models';
 import { useDailyLogStore } from '../store/dailyLogStore';
+import { useProfileStore } from '../store/profileStore';
+import { calculateTdee } from '../services/bmr';
 import { MealCategoryRow } from '../components/MealCategoryRow';
 import { Loader } from '../components/Loader';
 import * as db from '../database/db';
@@ -22,6 +24,7 @@ import { COLORS, FONT, RADIUS, SPACING } from '../theme/theme';
 
 export function MealLogScreen(): React.ReactElement {
   const { todayLog, allLogs, isLoading, setMealCalories, deleteMealEntry } = useDailyLogStore();
+  const { profile } = useProfileStore();
   const [editCat, setEditCat] = useState<MealCategory | null>(null);
   const [editVal, setEditVal] = useState('');
   const [todayEntries, setTodayEntries] = useState<MealEntry[]>([]);
@@ -34,12 +37,13 @@ export function MealLogScreen(): React.ReactElement {
     db.getMealEntriesForDate(todayStr).then(setTodayEntries);
   }, [todayLog]);
 
-  if (isLoading || !todayLog) return <Loader />;
+  if (isLoading || !todayLog || !profile) return <Loader />;
 
+  const tdee = Math.round(calculateTdee(profile));
   const totalIn = getTotalIntake(todayLog);
   const burned = todayLog.workoutCalBurned;
-  const net = getNetCal(todayLog);
-  const netColor = net <= 0 ? COLORS.deficit : COLORS.surplus;
+  const net = getNetCal(todayLog, tdee);
+  const netColor = net > 0 ? COLORS.error : COLORS.deficit;
 
   // Always show all 7 prior days, filling zeros for days with no record.
   const recentLogs: DailyLog[] = [];
@@ -167,10 +171,11 @@ export function MealLogScreen(): React.ReactElement {
         <>
           <Text style={[styles.title, { marginTop: SPACING.lg }]}>LAST 7 DAYS</Text>
           <View style={styles.historyCard}>
-            {recentLogs.map((log, idx) => {
-              const dayTotal = getTotalIntake(log);
-              const dayNet = getNetCal(log);
-              const dayNetColor = dayNet <= 0 ? COLORS.deficit : COLORS.surplus;
+            recentLogs.map((log, idx) => {
+                  const dayTotal = getTotalIntake(log);
+                  const dayTdee = log.tdeeSnapshot && log.tdeeSnapshot > 0 ? Math.round(log.tdeeSnapshot) : tdee;
+                  const dayNet = getNetCal(log, dayTdee);
+                  const dayNetColor = dayNet > 0 ? COLORS.error : COLORS.deficit;
               const isLast = idx === recentLogs.length - 1;
               return (
                 <View key={log.date}>
