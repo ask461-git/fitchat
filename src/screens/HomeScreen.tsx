@@ -10,7 +10,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import dayjs from 'dayjs';
 
-import { getNetCal, getTotalIntake } from '../models';
+import { getTotalIntake } from '../models';
 import { useProfileStore } from '../store/profileStore';
 import { useDailyLogStore } from '../store/dailyLogStore';
 import { calculateTdee } from '../services/bmr';
@@ -77,18 +77,14 @@ export function HomeScreen(): React.ReactElement {
 
       {/* Net Cal big card */}
       <View style={styles.netCard}>
-        <Text style={styles.netLabel}>
-          {netCal <= 0 ? 'CALORIE DEFICIT' : 'CALORIE SURPLUS'}
-        </Text>
-        <Text style={[styles.netValue, { color: netColor }]}>
-          {netCal > 0 ? '+' : ''}{netCal} kcal
-        </Text>
+        <Text style={styles.netLabel}>{netLabel}</Text>
+        <Text style={[styles.netValue, { color: netColor }]}>{netAbs} kcal</Text>
         <View style={styles.progressTrack}>
           <View
             style={[
               styles.progressFill,
               {
-                width: `${Math.min((Math.abs(netCal) / tdee) * 100, 100)}%`,
+                width: `${Math.min((netAbs / tdee) * 100, 100)}%`,
                 backgroundColor: netColor,
               },
             ]}
@@ -170,7 +166,7 @@ export function HomeScreen(): React.ReactElement {
       <View style={[styles.mt]}>
         <Text style={styles.chartTitle}>PROTEIN — LAST 7 DAYS</Text>
         <View style={[styles.chart, { height: 120, alignItems: 'flex-end', paddingBottom: 22 }]}> 
-          {recentLogs.map((log, i) => {
+          {last7.map((log, i) => {
             const val = Math.round(log.proteinTotal ?? 0);
             const h = Math.max((val / proteinMax) * 100, 4);
             return (
@@ -188,7 +184,7 @@ export function HomeScreen(): React.ReactElement {
       {/* Recent Days macro list (last 7 days) */}
       <View style={[styles.mt]}>
         <Text style={styles.chartTitle}>RECENT DAYS — MACROS</Text>
-        {recentLogs.map((log) => (
+        {last7.map((log) => (
           <View key={log.date} style={styles.macroRow}>
             <Text style={styles.macroDate}>{dayjs(log.date).format('MMM D')}</Text>
             <View style={styles.macroValues}>
