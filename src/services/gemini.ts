@@ -321,6 +321,7 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
 }
 
 // Estimate cardio/calorie burn for a single activity using Gemini.
+// Estimate cardio/calorie burn for a single activity using Gemini.
 export async function estimateCardio(params: {
   activity: string;
   intensity?: number | string;
@@ -328,92 +329,70 @@ export async function estimateCardio(params: {
   distance?: string;
   weightKg: number;
 }): Promise<{ calories: number; text: string }> {
-  const { activity, intensity, durationMinutes, weightKg } = params;
-  const distanceLine = params.distance ? `Distance: ${params.distance}\n` : '';
-  const prompt = `You are a calculator. You must respond ONLY with a valid, raw JSON object. Do not include markdown formatting, backticks, or conversational text. The JSON format must be exactly: {"calories": , "note": ""}.
-Estimate calories burned for the following activity.
+  const { activity, intensity, durationMinutes, weightKg, distance } = params;
+  const distanceLine = distance ? `Distance: ${distance}\n` : '';
+
+  const prompt = `Calculate the estimated calories burned for the following workout.
 Activity: ${activity}
 Intensity/Incline/Resistance: ${intensity ?? 'N/A'}
 Duration (minutes): ${durationMinutes}
-${distanceLine}Weight (kg): ${weightKg}
+${distanceLine}Weight (kg): ${weightKg}`;
 
-Return only the JSON object.`;
-
-  const res = await fetch(`${BASE_URL}?key=${API_KEY}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      system_instruction: { parts: [{ text: 'You are a calculator. Respond ONLY with raw JSON as specified by the user prompt.' }] },
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generation_config: {
-        temperature: 0,
-        max_output_tokens: 200,
-        response_mime_type: 'application/json',
-        response_schema: {
-          type: 'object',
-          properties: {
-            calories: { type: 'number' },
-            note: { type: 'string' },
+  try {
+    const res = await fetch(`${BASE_URL}?key=${API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: 'You are an exact calorie calculator. Use standard MET formulas. You must return only valid JSON.' }] },
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.1,
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'OBJECT',
+            properties: {
+              calories: { type: 'INTEGER', description: 'Calculated calories burned' },
+              note: { type: 'STRING', description: 'Short explanation of the MET math used' },
+            },
+            required: ['calories', 'note'],
           },
-          required: ['calories', 'note'],
         },
-      },
-    }),
-  });
+      }),
+    });
 
-  if (!res.ok) {
-    throw new Error(`Gemini API error ${res.status}`);
-  }
-
-  const data: any = await res.json();
-
-  // Prefer structured response produced by the API when response_mime_type is application/json.
-  // Try several likely locations for the structured object to be present.
-  const candidate = data?.candidates?.[0] ?? {};
-  const structured =
-    candidate?.content?.[0]?.structured ??
-    candidate?.output?.[0]?.content?.structured ??
-    candidate?.structured ??
-    null;
-
-  let calories = 0;
-  let note = '';
-
-  if (structured && typeof structured === 'object') {
-    calories = Number(structured.calories) || 0;
-    note = typeof structured.note === 'string' ? structured.note : '';
-  } else {
-    // Fall back to attempting to parse the raw text body strictly with JSON.parse.
-    const parts: any[] = data?.candidates?.[0]?.content?.parts ?? [];
-    let text = parts.map(p => p.text || '').join('\n').trim();
-
-    // If the model wrapped the JSON with surrounding text, attempt to isolate the first {...} block using indexOf (no regex).
-    const first = text.indexOf('{');
-    const last = text.lastIndexOf('}');
-    if (first !== -1 && last !== -1 && last > first) {
-      text = text.slice(first, last + 1);
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error(`🚨 API Error ${res.status}:`, errText);
+      throw new Error(`API returned ${res.status}`);
     }
 
-    try {
-      const obj = JSON.parse(text);
-      calories = Number(obj.calories) || 0;
-      note = typeof obj.note === 'string' ? obj.note : '';
-    } catch (parseErr) {
-      console.error('Failed to parse Gemini JSON response:', parseErr, 'rawText:', text, 'rawResponse:', data);
-      calories = 0;
-      note = '';
+    const data: any = await res.json();
+    const textResponse = data?.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+    
+    console.log('🕵️ Raw Gemini Response:', textResponse);
+
+    const obj = JSON.parse(textResponse);
+    
+    if (!obj.calories || obj.calories <= 0) {
+      throw new Error('Gemini returned 0 calories');
     }
-  }
 
-  // Safe fallback if parsed value is missing or implausible.
-  if (!calories || calories <= 1) {
-    const fallback = Math.max(1, Math.round(durationMinutes * 8)); // e.g., 15min -> 120 kcal
-    console.error(`Gemini returned implausible calories (${calories}). Using fallback estimate: ${fallback} kcal. structured:`, structured ?? data);
-    calories = fallback;
-    note = note || 'fallback estimate due to parse or implausible value';
+    return {
+      calories: Math.round(Number(obj.calories)),
+      text: obj.note || '',
+    };
+    
+  } catch (err) {
+    console.error('🚨 Cardio Parse/Fetch Error:', err);
+    // Standard MET fallback math: (MET * 3.5 * weightKg * durationMinutes) / 200
+    // Using a generic MET of 7.0 for an elliptical/moderate cardio fallback
+    const fallbackCal = Math.round((7.0 * 3.5 * weightKg * durationMinutes) / 200);
+    
+    return {
+      calories: fallbackCal,
+      text: `Fallback estimate (${fallbackCal} kcal) used due to API error.`,
+    };
   }
-
-  return { calories, text: note || JSON.stringify(structured ?? {}) };
 }
 
 // Quick heuristic estimator for macros when not provided (grams).
