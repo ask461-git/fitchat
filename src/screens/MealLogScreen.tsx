@@ -42,7 +42,16 @@ function Row({ label, value, valueColor = COLORS.textPrimary, bold = false }: an
 export function MealLogScreen(): React.ReactElement {
   const navigation = useNavigation<Nav>();
   const { profile } = useProfileStore();
-  const { todayLog, allLogs, loadTodayLog, loadAllLogs, updateDailyLog } = useDailyLogStore();
+  
+  // Destructuring exactly what your store exports
+  const { 
+    todayLog, 
+    allLogs, 
+    loadToday, 
+    loadAllLogs, 
+    setMealCalories,
+    deleteMealEntry: storeDeleteMealEntry
+  } = useDailyLogStore();
   
   const [todayEntries, setTodayEntries] = useState<MealEntry[]>([]);
   const [editCat, setEditCat] = useState<string | null>(null);
@@ -52,14 +61,14 @@ export function MealLogScreen(): React.ReactElement {
   const tdee = profile ? Math.round(calculateTdee(profile)) : 2000;
 
   useEffect(() => {
-    loadTodayLog();
+    loadToday();
     loadAllLogs();
     async function fetchEntries() {
       const entries = await db.getMealEntriesForDate(todayStr);
       setTodayEntries(entries);
     }
     fetchEntries();
-  }, [loadTodayLog, loadAllLogs, todayStr]);
+  }, [loadToday, loadAllLogs, todayStr]);
 
   // Compute clean totals
   const totalIn = todayLog ? getTotalIntake(todayLog) : 0;
@@ -92,19 +101,6 @@ export function MealLogScreen(): React.ReactElement {
     }
   }
 
-  async function setMealCalories(cat: string, val: number) {
-    if (!todayLog) return;
-    const updated = { ...todayLog };
-    switch (cat) {
-      case 'Breakfast': updated.breakfastCal = val; break;
-      case 'Morning Snack': updated.morningSnackCal = val; break;
-      case 'Lunch': updated.lunchCal = val; break;
-      case 'Evening Snack': updated.eveningSnackCal = val; break;
-      case 'Dinner': updated.dinnerCal = val; break;
-    }
-    await updateDailyLog(updated as any);
-  }
-
   function openEdit(cat: string) {
     setEditCat(cat);
     setEditVal(String(getMealCal(todayLog, cat) || ''));
@@ -115,11 +111,13 @@ export function MealLogScreen(): React.ReactElement {
     const val = parseInt(editVal, 10) || 0;
     if (val < 0) return Alert.alert('Invalid', 'Enter a number ≥ 0.');
 
+    // 1. Delete all existing DB entries for this category
     const toRemove = todayEntries.filter(e => e.category === editCat);
     for (const e of toRemove) {
       if (e.id) await db.deleteMealEntry(e.id);
     }
     
+    // 2. Insert new manual entry if value is > 0
     let kept = todayEntries.filter(e => e.category !== editCat);
     if (val > 0) {
       const newEntry = await db.insertMealEntry({
@@ -130,8 +128,10 @@ export function MealLogScreen(): React.ReactElement {
       });
       kept = [...kept, newEntry];
     }
+    
+    // 3. Update UI and Store
     setTodayEntries(kept);
-    await setMealCalories(editCat, val);
+    await setMealCalories(editCat, val); // Uses store directly!
     setEditCat(null);
   }
 
@@ -143,12 +143,10 @@ export function MealLogScreen(): React.ReactElement {
         style: 'destructive',
         onPress: async () => {
           if (entry.id) {
-            await db.deleteMealEntry(entry.id);
-            const currentCal = getMealCal(todayLog, entry.category) - (entry.calories || 0);
-            await setMealCalories(entry.category, Math.max(0, currentCal));
+            // Let the store handle DB deletion and recalculation
+            await storeDeleteMealEntry(entry);
             const updated = await db.getMealEntriesForDate(todayStr);
             setTodayEntries(updated);
-            await loadTodayLog();
           }
         },
       },

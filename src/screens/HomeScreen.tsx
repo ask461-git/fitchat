@@ -27,22 +27,10 @@ export function HomeScreen(): React.ReactElement {
   const { profile, isLoading: profileLoading } = useProfileStore();
   const { todayLog, allLogs, isLoading: logLoading } = useDailyLogStore();
 
-  if (profileLoading || logLoading || !profile || !todayLog) {
-    return <Loader />;
-  }
+  // Safely calculate TDEE before the early return so the hook can use it
+  const tdee = profile ? Math.round(calculateTdee(profile)) : 2000;
 
-  const tdee = Math.round(calculateTdee(profile));
-  const totalIn = getTotalIntake(todayLog);
-  const burned = todayLog.workoutCalBurned;
-  const dailyNetBalance = totalIn - (tdee + burned);
-  const netColor = dailyNetBalance <= 0 ? COLORS.deficit : COLORS.surplus;
-  const netLabel = dailyNetBalance <= 0 ? 'CALORIE DEFICIT' : 'CALORIE SURPLUS';
-  const netAbs = Math.abs(dailyNetBalance);
-  const accumulated = accumulatedDeficit(allLogs);
-  const eta = etaDate(profile.currentWeightKg, profile.targetWeightKg, allLogs);
-  const kgLeft = (profile.currentWeightKg - profile.targetWeightKg).toFixed(1);
-
-  // Last 7 days data (oldest -> newest)
+  // Last 7 days data (oldest -> newest) - ALL HOOKS MUST GO BEFORE THE EARLY RETURN
   const last7 = useMemo(() => {
     const arr: any[] = [];
     for (let i = 6; i >= 0; i--) {
@@ -64,6 +52,21 @@ export function HomeScreen(): React.ReactElement {
     }
     return arr;
   }, [allLogs, tdee]);
+
+  // NOW we can safely exit if the data isn't ready
+  if (profileLoading || logLoading || !profile || !todayLog) {
+    return <Loader />;
+  }
+
+  const totalIn = getTotalIntake(todayLog);
+  const burned = todayLog.workoutCalBurned;
+  const dailyNetBalance = totalIn - (tdee + burned);
+  const netColor = dailyNetBalance <= 0 ? COLORS.deficit : COLORS.surplus;
+  const netLabel = dailyNetBalance <= 0 ? 'CALORIE DEFICIT' : 'CALORIE SURPLUS';
+  const netAbs = Math.abs(dailyNetBalance);
+  const accumulated = accumulatedDeficit(allLogs);
+  const eta = etaDate(profile.currentWeightKg, profile.targetWeightKg, allLogs);
+  const kgLeft = (profile.currentWeightKg - profile.targetWeightKg).toFixed(1);
 
   const maxDeviation = Math.max(...last7.map(l => Math.abs(l.dailyNetBalance)), 1);
   const proteinTarget = Math.round(profile.currentWeightKg * 1.8);
