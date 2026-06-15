@@ -338,14 +338,18 @@ Intensity/Incline/Resistance: ${intensity ?? 'N/A'}
 Duration (minutes): ${durationMinutes}
 ${distanceLine}Weight (kg): ${weightKg}
 
-CRITICAL: Do NOT use a generic or baseline MET. You must dynamically calculate and adjust the MET multiplier based on the user's specific speed (distance over duration) and the exact intensity/resistance level provided. High resistance or fast pacing must result in a significantly higher MET.`;
+CRITICAL RULES:
+
+1. Dynamically calculate the MET based on the user's speed (distance/duration) and resistance.
+2. DO NOT exceed biological limits. For an elliptical, METs range from 4.5 (Light) to 6.0 (Vigorous), with an absolute maximum cap of 8.5 for extreme HIIT.
+3. Calculate the final calories using the formula: (MET * 3.5 * weightKg * durationMinutes) / 200.`;
 
   try {
     const res = await fetch(`${BASE_URL}?key=${API_KEY}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: 'You are an advanced sports science calculator. You dynamically adjust MET values based on specific resistance, distance, and pacing inputs rather than relying on generic averages. You must return only valid JSON.' }] },
+        systemInstruction: { parts: [{ text: 'You are an advanced sports science calculator. You dynamically adjust MET values based on specific resistance, distance, and pacing inputs, but you must strictly constrain your calculations to the standard medical Compendium of Physical Activities. You must return only valid JSON.' }] },
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
         generationConfig: {
           temperature: 0.1,
