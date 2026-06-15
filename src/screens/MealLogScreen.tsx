@@ -147,40 +147,40 @@ export function MealLogScreen(): React.ReactElement {
       {/* Summary */}
       <View style={styles.summaryCard}>
         <Row label="Total Intake" value={`${totalIn} kcal`} />
-        <View style={styles.divider} />
-        <Row label="Workout Burned" value={`-${burned} kcal`} />
-        <View style={styles.divider} />
-        <Row
-          label="Net Calories"
-          value={`${net > 0 ? '+' : ''}${net} kcal`}
-          valueColor={netColor}
-          bold
-        />
-        <View style={styles.divider} />
-        <Row label="Protein" value={`${Math.round(todayLog.proteinTotal ?? 0)} g`} />
-        <View style={styles.divider} />
-        <Row label="Fat" value={`${Math.round(todayLog.fatTotal ?? 0)} g`} />
-        <View style={styles.divider} />
-        <Row label="Carbs" value={`${Math.round(todayLog.carbsTotal ?? 0)} g`} />
-        <View style={styles.divider} />
-        <Row label="Fiber" value={`${Math.round(todayLog.fiberTotal ?? 0)} g`} />
-      </View>
-
-      {/* Last 7 days */}
-      {recentLogs.length > 0 && (
-        <>
-          <Text style={[styles.title, { marginTop: SPACING.lg }]}>LAST 7 DAYS</Text>
           <View style={styles.historyCard}>
-            recentLogs.map((log, idx) => {
+            {recentLogs.map((log, idx) => {
                   const dayTotal = getTotalIntake(log);
                   const dayTdee = log.tdeeSnapshot && log.tdeeSnapshot > 0 ? Math.round(log.tdeeSnapshot) : tdee;
                   const dayNet = getNetCal(log, dayTdee);
-                  const dayNetColor = dayNet > 0 ? COLORS.error : COLORS.deficit;
+                  const dayNetColor = dayNet > 0 ? COLORS.error : COLORS.accent;
               const isLast = idx === recentLogs.length - 1;
               return (
                 <View key={log.date}>
                   <TouchableOpacity
                     style={styles.historyRow}
+                    onPress={() => navigation.navigate('DayDetail', { date: log.date })}
+                    activeOpacity={0.7}
+                  >
+                    <View>
+                      <Text style={styles.historyDate}>
+                        {dayjs(log.date).format('ddd, MMM D')}
+                      </Text>
+                      <Text style={styles.historyBurned}>
+                        {log.workoutCalBurned > 0 ? `–${log.workoutCalBurned} burned` : 'No workout'}
+                      </Text>
+                    </View>
+                    <View style={styles.historyRight}>
+                      <Text style={styles.historyTotal}>{dayTotal} kcal</Text>
+                      <Text style={[styles.historyNet, { color: dayNetColor }]}>\
+                        {dayNet > 0 ? '+' : ''}{dayNet} net
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                  {!isLast && <View style={styles.divider} />}
+                </View>
+              );
+            })}
+          </View>
                     onPress={() => navigation.navigate('DayDetail', { date: log.date })}
                     activeOpacity={0.7}
                   >
