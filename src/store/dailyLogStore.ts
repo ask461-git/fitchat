@@ -37,7 +37,8 @@ export interface DailyLogState {
   recalcDailyMacroTotals: (date: string) => Promise<void>;
   addMealCalories: (category: string, calories: number) => Promise<void>;
   setMealCalories: (category: string, calories: number) => Promise<void>;
-  addWorkoutCalories: (calories: number) => Promise<void>;
+  // UPDATED: Now accepts an optional date parameter
+  addWorkoutCalories: (calories: number, date?: string) => Promise<void>;
   addWorkout: (workout: WorkoutLog) => Promise<void>;
   deleteWorkout: (workout: WorkoutLog) => Promise<void>;
   deleteMealEntry: (entry: MealEntry) => Promise<void>;
@@ -75,7 +76,6 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
     await db.updateDailyLog(updated);
     const allLogs = await db.getAllDailyLogs();
     set({ todayLog: updated, allLogs });
-    // Recompute macros totals from meal entries
     await get().recalcDailyMacroTotals(updated.date);
     get().syncToSheets();
   },
@@ -91,50 +91,59 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
     get().syncToSheets();
   },
 
-  addWorkoutCalories: async (calories) => {
-    const log = get().todayLog;
-    if (!log) return;
+  // UPDATED: Fetches and updates the log for the specific date, not just today
+  addWorkoutCalories: async (calories, dateStr = todayStr()) => {
+    const tdee = getTdeeFromStore();
+    const log = await db.getOrCreateDailyLog(dateStr, tdee);
     const updated = {
       ...log,
       workoutCalBurned: log.workoutCalBurned + calories,
     };
     await db.updateDailyLog(updated);
     const allLogs = await db.getAllDailyLogs();
-    set({ todayLog: updated, allLogs });
+    
+    // Only update the 'todayLog' state if the workout was actually for today
+    if (dateStr === todayStr()) {
+      set({ todayLog: updated, allLogs });
+    } else {
+      set({ allLogs });
+    }
+    
     get().syncToSheets();
   },
 
+  // UPDATED: Now passes the workout's specific date to addWorkoutCalories
   addWorkout: async (workout) => {
     await db.insertWorkout(workout);
-    // Roll calories into daily log.
-    await get().addWorkoutCalories(workout.caloriesBurned);
-    const workouts = await db.getWorkoutsForDate(todayStr());
-    set({ todayWorkouts: workouts });
-    // syncToSheets is called inside addWorkoutCalories → setMealCalories chain.
+    await get().addWorkoutCalories(workout.caloriesBurned, workout.date);
+    
+    if (workout.date === todayStr()) {
+      const workouts = await db.getWorkoutsForDate(todayStr());
+      set({ todayWorkouts: workouts });
+    }
   },
 
+  // UPDATED: Now supports deleting historical workouts
   deleteWorkout: async (workout) => {
     if (!workout.id) return;
     await db.deleteWorkout(workout.id);
-    // Remove its contribution from the daily log.
-    await get().addWorkoutCalories(-workout.caloriesBurned);
-    const workouts = await db.getWorkoutsForDate(todayStr());
-    set({ todayWorkouts: workouts });
-    // syncToSheets is called inside addWorkoutCalories.
+    await get().addWorkoutCalories(-workout.caloriesBurned, workout.date);
+    
+    if (workout.date === todayStr()) {
+      const workouts = await db.getWorkoutsForDate(todayStr());
+      set({ todayWorkouts: workouts });
+    }
   },
 
   deleteMealEntry: async (entry) => {
     if (!entry.id) return;
     await db.deleteMealEntry(entry.id);
-    // Recalculate category total from remaining entries.
     const remaining = await db.getMealEntriesForDate(todayStr());
     const categoryTotal = remaining
       .filter(e => e.category === entry.category)
       .reduce((sum, e) => sum + e.calories, 0);
     await get().setMealCalories(entry.category, categoryTotal);
-    // Recompute macros totals after deletion
     await get().recalcDailyMacroTotals(todayStr());
-    // syncToSheets is called inside setMealCalories.
   },
 
   syncToSheets: async () => {
@@ -163,7 +172,6 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
     );
     const updated: DailyLog = {
       ...log,
-      // keep per-category calories as-is; only update aggregated macro totals
       proteinTotal: totals.pro,
       fatTotal: totals.fat,
       carbsTotal: totals.carbs,
@@ -176,7 +184,6 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
 
   clearDay: async (date) => {
     await db.resetDailyLog(date);
-    // Refresh today's state only if the cleared date is today.
     if (date === todayStr()) {
       await get().loadToday();
       const workouts = await db.getWorkoutsForDate(date);

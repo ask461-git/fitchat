@@ -68,7 +68,7 @@ export function MealLogScreen(): React.ReactElement {
       setTodayEntries(entries);
     }
     fetchEntries();
-  }, [loadToday, loadAllLogs, todayStr]);
+  }, [loadToday, loadAllLogs, todayStr, todayLog]);
 
   // Compute clean totals
   const totalIn = todayLog ? getTotalIntake(todayLog) : 0;
@@ -90,6 +90,24 @@ export function MealLogScreen(): React.ReactElement {
     }
     return logs;
   }, [allLogs]);
+
+  const [recentWorkouts, setRecentWorkouts] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    async function fetchRecentWorkouts() {
+      const map: Record<string, string> = {};
+      for (const log of recentLogs) {
+        try {
+          const ws = await db.getWorkoutsForDate(log.date);
+          if (ws && ws.length > 0) map[log.date] = ws.map(w => w.exerciseType).join(', ');
+        } catch (err) {
+          // ignore per-date fetch errors
+        }
+      }
+      setRecentWorkouts(map);
+    }
+    fetchRecentWorkouts();
+  }, [recentLogs]);
 
   function getMealCal(log: any, cat: string): number {
     if (!log) return 0;
@@ -241,7 +259,9 @@ export function MealLogScreen(): React.ReactElement {
                     <View style={{ flex: 1 }}>
                       <Text style={styles.historyDate}>{dayjs(log.date).format('ddd, MMM D')}</Text>
                       <Text style={styles.historyBurned}>
-                        {log.workoutCalBurned > 0 ? `–${log.workoutCalBurned} kcal burned` : 'No workout'}
+                        {recentWorkouts[log.date]
+                          ? `${recentWorkouts[log.date]}, ${log.workoutCalBurned > 0 ? `–${log.workoutCalBurned} kcal burned` : 'No workout'}`
+                          : (log.workoutCalBurned > 0 ? `–${log.workoutCalBurned} kcal burned` : 'No workout')}
                       </Text>
                     </View>
                     <View style={styles.historyRight}>

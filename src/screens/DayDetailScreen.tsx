@@ -1,35 +1,82 @@
 import React, { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, TouchableOpacity, Modal, TextInput, Alert } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import dayjs from 'dayjs';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import { MEAL_CATEGORIES, type DailyLog, type MealEntry, type WorkoutLog, getMealCal, getTotalIntake, getNetCal } from '../models';
 import * as db from '../database/db';
 import { Loader } from '../components/Loader';
+import { useDailyLogStore } from '../store/dailyLogStore';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme/theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'DayDetail'>;
 
 export function DayDetailScreen({ route }: Props): React.ReactElement {
   const { date } = route.params;
+  const { addWorkout } = useDailyLogStore();
+  
   const [log, setLog] = useState<DailyLog | null>(null);
   const [entries, setEntries] = useState<MealEntry[]>([]);
   const [workouts, setWorkouts] = useState<WorkoutLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // States for the new workout modal
+  const [isModalVisible, setModalVisible] = useState(false);
+  const [newWorkoutName, setNewWorkoutName] = useState('');
+  const [newWorkoutDuration, setNewWorkoutDuration] = useState('');
+  const [newWorkoutCals, setNewWorkoutCals] = useState('');
+
+  const fetchDayData = async () => {
+    const [dayLog, dayEntries, dayWorkouts] = await Promise.all([
+      db.getDailyLog(date),
+      db.getMealEntriesForDate(date),
+      db.getWorkoutsForDate(date),
+    ]);
+    setLog(dayLog);
+    setEntries(dayEntries);
+    setWorkouts(dayWorkouts);
+  };
+
   useEffect(() => {
-    (async () => {
-      const [dayLog, dayEntries, dayWorkouts] = await Promise.all([
-        db.getDailyLog(date),
-        db.getMealEntriesForDate(date),
-        db.getWorkoutsForDate(date),
-      ]);
-      setLog(dayLog);
-      setEntries(dayEntries);
-      setWorkouts(dayWorkouts);
-      setIsLoading(false);
-    })();
+    fetchDayData().then(() => setIsLoading(false));
   }, [date]);
+
+  const handleSaveWorkout = async () => {
+    if (!newWorkoutName || !newWorkoutDuration || !newWorkoutCals) {
+      return Alert.alert('Missing Info', 'Please fill in all workout fields.');
+    }
+
+    const duration = parseInt(newWorkoutDuration, 10);
+    const calories = parseInt(newWorkoutCals, 10);
+
+    if (isNaN(duration) || isNaN(calories)) {
+      return Alert.alert('Invalid Numbers', 'Duration and calories must be numbers.');
+    }
+
+    setIsLoading(true);
+    setModalVisible(false);
+
+    try {
+      // Use the newly updated store function which supports historical dates
+      await addWorkout({
+        date: date, // The historical date
+        exerciseType: newWorkoutName,
+        durationMinutes: duration,
+        caloriesBurned: calories,
+        notes: 'Manually added',
+      } as WorkoutLog);
+
+      // Refresh the screen data to show the new workout
+      await fetchDayData();
+    } catch (e) {
+      Alert.alert('Error', 'Failed to save the workout.');
+    } finally {
+      setIsLoading(false);
+      setNewWorkoutName('');
+      setNewWorkoutDuration('');
+      setNewWorkoutCals('');
+    }
+  };
 
   if (isLoading) return <Loader />;
 
@@ -50,84 +97,136 @@ export function DayDetailScreen({ route }: Props): React.ReactElement {
   const netColor = net <= 0 ? COLORS.deficit : COLORS.surplus;
 
   return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>{dayjs(date).format('dddd, MMMM D').toUpperCase()}</Text>
+    <View style={{ flex: 1, backgroundColor: COLORS.background }}>
+      <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+        <Text style={styles.title}>{dayjs(date).format('dddd, MMMM D').toUpperCase()}</Text>
 
-      {MEAL_CATEGORIES.map(cat => {
-        const cal = getMealCal(displayLog, cat);
-        const catEntries = entries.filter(e => e.category === cat);
-        return (
-          <View key={cat} style={styles.categoryBlock}>
-            <View style={styles.categoryHeader}>
-              <Text style={styles.categoryName}>{cat}</Text>
-              <Text style={[styles.categoryKcal, cal === 0 && styles.zeroKcal]}>
-                {cal} kcal
-              </Text>
-            </View>
-            {catEntries.length > 0 ? (
-              catEntries.map(e => (
-                <View key={e.id} style={styles.entryRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.entryDesc}>{e.foodDescription}</Text>
-                    <Text style={styles.entryMacro}>
-                      {`P ${Math.round(e.protein ?? 0)}g · F ${Math.round(e.fat ?? 0)}g · C ${Math.round(
-                        e.carbs ?? 0,
-                      )}g · Fib ${Math.round(e.fiber ?? 0)}g`}
-                    </Text>
-                  </View>
-                  <Text style={styles.entryKcal}>{e.calories} kcal</Text>
-                </View>
-              ))
-            ) : (
-              <Text style={styles.emptyHint}>Nothing logged</Text>
-            )}
-          </View>
-        );
-      })}
-
-      {workouts.length > 0 ? (
-        <View style={styles.workoutsCard}>
-          <Text style={styles.sectionTitle}>WORKOUTS</Text>
-          {workouts.map(w => (
-            <View key={w.id} style={styles.workoutRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.workoutType}>{w.exerciseType}</Text>
-                <Text style={styles.workoutMeta}>
-                  {w.durationMinutes} min · {w.caloriesBurned} kcal
+        {MEAL_CATEGORIES.map(cat => {
+          const cal = getMealCal(displayLog, cat);
+          const catEntries = entries.filter(e => e.category === cat);
+          return (
+            <View key={cat} style={styles.categoryBlock}>
+              <View style={styles.categoryHeader}>
+                <Text style={styles.categoryName}>{cat}</Text>
+                <Text style={[styles.categoryKcal, cal === 0 && styles.zeroKcal]}>
+                  {cal} kcal
                 </Text>
-                {w.notes ? <Text style={styles.workoutNotes}>{w.notes}</Text> : null}
+              </View>
+              {catEntries.length > 0 ? (
+                catEntries.map(e => (
+                  <View key={e.id} style={styles.entryRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.entryDesc}>{e.foodDescription}</Text>
+                      <Text style={styles.entryMacro}>
+                        {`P ${Math.round(e.protein ?? 0)}g · F ${Math.round(e.fat ?? 0)}g · C ${Math.round(
+                          e.carbs ?? 0,
+                        )}g · Fib ${Math.round(e.fiber ?? 0)}g`}
+                      </Text>
+                    </View>
+                    <Text style={styles.entryKcal}>{e.calories} kcal</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.emptyHint}>Nothing logged</Text>
+              )}
+            </View>
+          );
+        })}
+
+        <View style={styles.workoutsCard}>
+          <View style={styles.categoryHeader}>
+            <Text style={styles.sectionTitle}>WORKOUTS</Text>
+            <TouchableOpacity onPress={() => setModalVisible(true)}>
+              <Text style={styles.addBtn}>+ ADD</Text>
+            </TouchableOpacity>
+          </View>
+          
+          {workouts.length > 0 ? (
+            workouts.map(w => (
+              <View key={w.id} style={styles.workoutRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.workoutType}>{w.exerciseType}</Text>
+                  <Text style={styles.workoutMeta}>
+                    {w.durationMinutes} min · {w.caloriesBurned} kcal
+                  </Text>
+                  {w.notes ? <Text style={styles.workoutNotes}>{w.notes}</Text> : null}
+                </View>
+              </View>
+            ))
+          ) : (
+            <Text style={styles.emptyHint}>No workouts logged for this date.</Text>
+          )}
+        </View>
+
+        <View style={styles.summaryCard}>
+          <SummaryRow label="Total Intake" value={`${totalIn} kcal`} />
+          <View style={styles.divider} />
+          <SummaryRow label="Workout Burned" value={`-${burned} kcal`} />
+          <View style={styles.divider} />
+          <SummaryRow
+            label="Net Calories"
+            value={`${net > 0 ? '+' : ''}${net} kcal`}
+            valueColor={netColor}
+            bold
+          />
+          <View style={styles.divider} />
+          <SummaryRow label="Protein" value={`${Math.round(displayLog.proteinTotal ?? 0)} g`} />
+          <View style={styles.divider} />
+          <SummaryRow label="Fat" value={`${Math.round(displayLog.fatTotal ?? 0)} g`} />
+          <View style={styles.divider} />
+          <SummaryRow label="Carbs" value={`${Math.round(displayLog.carbsTotal ?? 0)} g`} />
+          <View style={styles.divider} />
+          <SummaryRow label="Fiber" value={`${Math.round(displayLog.fiberTotal ?? 0)} g`} />
+        </View>
+      </ScrollView>
+
+      {/* Manual Workout Modal */}
+      <Modal visible={isModalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setModalVisible(false)}>
+          <TouchableOpacity activeOpacity={1} style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Add Custom Workout</Text>
+            
+            <Text style={styles.modalLabel}>Activity Name</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={newWorkoutName}
+              onChangeText={setNewWorkoutName}
+              placeholder="e.g. Basketball, Swimming"
+              placeholderTextColor={COLORS.textSecondary}
+            />
+
+            <View style={{ flexDirection: 'row', gap: SPACING.md }}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalLabel}>Duration (min)</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={newWorkoutDuration}
+                  onChangeText={setNewWorkoutDuration}
+                  keyboardType="number-pad"
+                  placeholder="60"
+                  placeholderTextColor={COLORS.textSecondary}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalLabel}>Calories Burned</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={newWorkoutCals}
+                  onChangeText={setNewWorkoutCals}
+                  keyboardType="number-pad"
+                  placeholder="400"
+                  placeholderTextColor={COLORS.textSecondary}
+                />
               </View>
             </View>
-          ))}
-        </View>
-      ) : (
-        <View style={styles.workoutsCard}>
-          <Text style={styles.sectionTitle}>WORKOUTS</Text>
-          <Text style={styles.emptyHint}>No workouts logged for this date.</Text>
-        </View>
-      )}
 
-      <View style={styles.summaryCard}>
-        <SummaryRow label="Total Intake" value={`${totalIn} kcal`} />
-        <View style={styles.divider} />
-        <SummaryRow label="Workout Burned" value={`-${burned} kcal`} />
-        <View style={styles.divider} />
-        <SummaryRow
-          label="Net Calories"
-          value={`${net > 0 ? '+' : ''}${net} kcal`}
-          valueColor={netColor}
-          bold
-        />
-        <View style={styles.divider} />
-        <SummaryRow label="Protein" value={`${Math.round(displayLog.proteinTotal ?? 0)} g`} />
-        <View style={styles.divider} />
-        <SummaryRow label="Fat" value={`${Math.round(displayLog.fatTotal ?? 0)} g`} />
-        <View style={styles.divider} />
-        <SummaryRow label="Carbs" value={`${Math.round(displayLog.carbsTotal ?? 0)} g`} />
-        <View style={styles.divider} />
-        <SummaryRow label="Fiber" value={`${Math.round(displayLog.fiberTotal ?? 0)} g`} />
-      </View>
-    </ScrollView>
+            <TouchableOpacity style={styles.modalBtn} onPress={handleSaveWorkout}>
+              <Text style={styles.modalBtnText}>SAVE WORKOUT</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+    </View>
   );
 }
 
@@ -239,7 +338,11 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     fontFamily: FONT.bold,
     fontSize: 13,
-    marginBottom: SPACING.sm,
+  },
+  addBtn: {
+    color: COLORS.accent,
+    fontFamily: FONT.bold,
+    fontSize: 13,
   },
   workoutRow: {
     paddingVertical: SPACING.sm,
@@ -262,4 +365,50 @@ const styles = StyleSheet.create({
     marginTop: SPACING.xs,
   },
   divider: { height: 1, backgroundColor: COLORS.divider },
+  
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: RADIUS.xl,
+    borderTopRightRadius: RADIUS.xl,
+    padding: SPACING.lg,
+    paddingBottom: SPACING.xl * 2,
+  },
+  modalTitle: {
+    color: COLORS.textPrimary,
+    fontFamily: FONT.bold,
+    fontSize: 18,
+    marginBottom: SPACING.lg,
+  },
+  modalLabel: {
+    color: COLORS.textSecondary,
+    fontFamily: FONT.bold,
+    fontSize: 12,
+    marginBottom: SPACING.xs,
+  },
+  modalInput: {
+    backgroundColor: COLORS.surfaceAlt,
+    color: COLORS.textPrimary,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 12,
+    fontSize: 16,
+    fontFamily: FONT.regular,
+    borderWidth: 1,
+    borderColor: COLORS.divider,
+    marginBottom: SPACING.md,
+  },
+  modalBtn: {
+    backgroundColor: COLORS.accent,
+    borderRadius: RADIUS.md,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: SPACING.sm,
+  },
+  modalBtnText: { color: COLORS.black, fontFamily: FONT.bold, fontSize: 15 },
 });
