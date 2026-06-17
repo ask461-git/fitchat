@@ -82,7 +82,10 @@ export function WorkoutScreen(): React.ReactElement {
   // Lifting drafts
   const [liftingDraft, setLiftingDraft] = useState<Record<string, { setsArray: { weight: string; reps: string }[]; durationActive: string; durationRest: string }>>({});
 
-  if (isLoading || !profile) return <Loader />;
+  //if (isLoading || !profile) return <Loader />;
+  if (profileLoading || logLoading) {
+  return <Text>Loading...</Text>; // Temporary bypass
+}
 
   const selectedTemplate = WORKOUT_TEMPLATES[selectedTemplateIndex];
 

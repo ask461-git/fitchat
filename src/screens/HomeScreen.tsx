@@ -29,10 +29,8 @@ export function HomeScreen(): React.ReactElement {
   const { profile, isLoading: profileLoading } = useProfileStore();
   const { todayLog, allLogs, isLoading: logLoading } = useDailyLogStore();
 
-  // Safely calculate TDEE before the early return so the hook can use it
   const tdee = profile ? Math.round(calculateTdee(profile)) : 2000;
 
-  // Last 7 days data (oldest -> newest) - ALL HOOKS MUST GO BEFORE THE EARLY RETURN
   const last7 = useMemo(() => {
     const arr: any[] = [];
     for (let i = 6; i >= 0; i--) {
@@ -55,10 +53,12 @@ export function HomeScreen(): React.ReactElement {
     return arr;
   }, [allLogs, tdee]);
 
-  // NOW we can safely exit if the data isn't ready
-  if (profileLoading || logLoading || !profile || !todayLog) {
-    return <Loader />;
-  }
+ // if (profileLoading || logLoading || !profile || !todayLog) {
+//   return <Loader />;
+// }
+if (profileLoading || logLoading) {
+  return <Text>Loading...</Text>; // Temporary bypass
+}
 
   const totalIn = getTotalIntake(todayLog);
   const burned = todayLog.workoutCalBurned;
@@ -76,11 +76,9 @@ export function HomeScreen(): React.ReactElement {
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
-      {/* Date header */}
       <Text style={styles.dateText}>{dayjs().format('dddd, MMM D')}</Text>
       <Text style={styles.greeting}>Hey, {profile.name} 👊</Text>
 
-      {/* Net Cal big card */}
       <View style={styles.netCard}>
         <Text style={styles.netLabel}>{netLabel}</Text>
         <Text style={[styles.netValue, { color: netColor }]}>{netAbs} kcal</Text>
@@ -97,14 +95,12 @@ export function HomeScreen(): React.ReactElement {
         </View>
       </View>
 
-      {/* Stats row 1 */}
       <View style={styles.row}>
         <StatCard label="INTAKE" value={`${totalIn} kcal`} />
         <View style={styles.gap} />
         <StatCard label="BURNED" value={`${burned} kcal`} valueColor={COLORS.deficit} />
       </View>
 
-      {/* Stats row 2 */}
       <View style={[styles.row, styles.mt]}>
         <StatCard label="TDEE" value={`${tdee} kcal`} />
         <View style={styles.gap} />
@@ -115,7 +111,6 @@ export function HomeScreen(): React.ReactElement {
         />
       </View>
 
-      {/* Macro totals */}
       <View style={[styles.row, styles.mt]}>
         <StatCard label="PROTEIN" value={`${Math.round(todayLog.proteinTotal ?? 0)} g`} />
         <View style={styles.gap} />
@@ -127,7 +122,6 @@ export function HomeScreen(): React.ReactElement {
         <StatCard label="FIBER" value={`${Math.round(todayLog.fiberTotal ?? 0)} g`} />
       </View>
 
-      {/* ETA card */}
       <View style={[styles.etaCard, styles.mt]}>
         <Text style={styles.etaKg}>🎯 {kgLeft} kg to target</Text>
         <Text style={styles.etaSub}>
@@ -137,28 +131,31 @@ export function HomeScreen(): React.ReactElement {
         </Text>
       </View>
 
-      {/* Bidirectional Net Calories chart (center axis) - last 7 days */}
+      {/* FIXED: Bidirectional Net Calories chart */}
+     {/* INVERTED: Bidirectional Net Calories chart */}
       {last7.length >= 2 && (
         <View style={styles.mt}>
           <Text style={styles.chartTitle}>NET CALORIES — LAST 7 DAYS</Text>
-          <View style={[styles.chart, { height: 140, position: 'relative', paddingBottom: 0 }]}
-          >
-            {/* center axis */}
+          <View style={[styles.chart, { height: 160, paddingTop: 10, paddingBottom: 10, flexDirection: 'row' }]}>
+            
+            {/* The True Center Line */}
             <View style={[styles.centerLine, { top: 70 }]} />
+            
             {last7.map((day, i) => {
               const net = day.dailyNetBalance;
               const abs = Math.abs(net);
-              const pixel = Math.max((abs / maxDeviation) * 70, 4); // max half-height 70
+              const pixel = Math.max((abs / maxDeviation) * 55, 4); 
               const label = day.date.slice(8);
+              
               return (
-                <View key={i} style={styles.bidBarWrap}>
-                  {net <= 0 ? (
-                    // Deficit: grow UP from center
-                    <View style={[styles.bidBar, { bottom: 70, height: pixel, backgroundColor: COLORS.deficit }]} />
-                  ) : (
-                    // Surplus: grow DOWN from center
-                    <View style={[styles.bidBar, { top: 70, height: pixel, backgroundColor: COLORS.surplus }]} />
-                  )}
+                <View key={i} style={styles.bidColumn}>
+                  <View style={styles.bidBarContainer}>
+                    {/* Deficits (Green) now grow UPWARD from the 50% line */}
+                    {net <= 0 && <View style={[styles.bidBar, { bottom: '50%', height: pixel, backgroundColor: COLORS.deficit }]} />}
+                    
+                    {/* Surpluses (Red) now grow DOWNWARD from the 50% line */}
+                    {net > 0 && <View style={[styles.bidBar, { top: '50%', height: pixel, backgroundColor: COLORS.surplus }]} />}
+                  </View>
                   <Text style={styles.barDate}>{label}</Text>
                 </View>
               );
@@ -167,7 +164,7 @@ export function HomeScreen(): React.ReactElement {
         </View>
       )}
 
-      {/* Protein chart (last 7 days) */}
+      {/* Protein chart */}
       <View style={[styles.mt]}>
         <Text style={styles.chartTitle}>PROTEIN — LAST 7 DAYS</Text>
         <View style={[styles.chart, { height: 120, alignItems: 'flex-end', paddingBottom: 22 }]}> 
@@ -181,12 +178,10 @@ export function HomeScreen(): React.ReactElement {
               </View>
             );
           })}
-          {/* target line */}
           <View style={[styles.proteinTargetLine, { bottom: `${(1 - proteinTarget / proteinMax) * 100}%` }]} />
         </View>
       </View>
 
-      {/* Recent Days macro list (last 7 days) */}
       <View style={[styles.mt]}>
         <Text style={styles.chartTitle}>RECENT DAYS — MACROS</Text>
         {last7.map((log) => (
@@ -202,7 +197,6 @@ export function HomeScreen(): React.ReactElement {
         ))}
       </View>
 
-      {/* Talk to Kendrick */}
       <TouchableOpacity
         style={styles.chatBtn}
         onPress={() => navigation.navigate('Chat')}
@@ -210,20 +204,23 @@ export function HomeScreen(): React.ReactElement {
         <Text style={styles.chatBtnText}>🎤 TALK TO KENDRICK</Text>
       </TouchableOpacity>
 
-      {/* TEMP: Seed two weeks of realistic data — remove after use */}
       <TouchableOpacity
         style={styles.seedBtn}
         onPress={async () => {
           try {
+            for (let i = 14; i >= 0; i--) {
+              const date = dayjs().subtract(i, 'day').format('YYYY-MM-DD');
+              await useDailyLogStore.getState().clearDay(date);
+            }
             await seedTwoWeeksOfData(2500);
             await useDailyLogStore.getState().loadAllLogs();
-            Alert.alert('Done', 'Seed complete — check your history.');
+            Alert.alert('Database wiped and re-seeded!', 'Check your graph.');
           } catch (err) {
             Alert.alert('Seed failed', String(err));
           }
         }}
       >
-        <Text style={styles.seedBtnText}>🌱 Seed Two Weeks (temp)</Text>
+        <Text style={styles.seedBtnText}>🌱 Wipe & Seed Two Weeks</Text>
       </TouchableOpacity>
     </ScrollView>
   );
@@ -234,76 +231,36 @@ const styles = StyleSheet.create({
   content: { padding: SPACING.md, paddingBottom: SPACING.xl },
   dateText: { color: COLORS.textSecondary, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.8 },
   greeting: { color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 22, marginBottom: SPACING.md },
-  netCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.md,
-    marginBottom: SPACING.md,
-  },
+  netCard: { backgroundColor: COLORS.surface, borderRadius: RADIUS.lg, padding: SPACING.md, marginBottom: SPACING.md },
   netLabel: { color: COLORS.textSecondary, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.8 },
   netValue: { fontFamily: FONT.bold, fontSize: 40, marginVertical: SPACING.sm },
-  progressTrack: {
-    height: 6,
-    backgroundColor: COLORS.surfaceAlt,
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
+  progressTrack: { height: 6, backgroundColor: COLORS.surfaceAlt, borderRadius: 4, overflow: 'hidden' },
   progressFill: { height: 6, borderRadius: 4 },
   row: { flexDirection: 'row' },
   gap: { width: SPACING.sm },
   mt: { marginTop: SPACING.sm },
-  etaCard: {
-    backgroundColor: COLORS.surfaceAlt,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.md,
-  },
+  etaCard: { backgroundColor: COLORS.surfaceAlt, borderRadius: RADIUS.lg, padding: SPACING.md },
   etaKg: { color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 15 },
   etaSub: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 12, marginTop: 4 },
-  chartTitle: {
-    color: COLORS.textSecondary,
-    fontFamily: FONT.bold,
-    fontSize: 11,
-    letterSpacing: 0.8,
-    marginBottom: SPACING.sm,
-  },
-  chart: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    height: 110,
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.md,
-    paddingHorizontal: SPACING.sm,
-    paddingBottom: 22,
-    paddingTop: SPACING.sm,
-  },
+  chartTitle: { color: COLORS.textSecondary, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.8, marginBottom: SPACING.sm },
+  chart: { flexDirection: 'row', alignItems: 'flex-end', height: 110, backgroundColor: COLORS.surface, borderRadius: RADIUS.md, paddingHorizontal: SPACING.sm, paddingBottom: 22, paddingTop: SPACING.sm },
   barWrap: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
-  bar: { width: '70%', borderRadius: 3 },
   barDate: { color: COLORS.textSecondary, fontSize: 9, marginTop: 3 },
   centerLine: { position: 'absolute', left: SPACING.sm, right: SPACING.sm, height: 1, backgroundColor: COLORS.divider },
-  bidBarWrap: { flex: 1, alignItems: 'center', justifyContent: 'flex-start' },
+  
+  // FIXED: Chart Styles
+  bidColumn: { flex: 1, alignItems: 'center', justifyContent: 'space-between', height: '100%' },
+  bidBarContainer: { height: 120, width: '100%', alignItems: 'center', position: 'relative' },
   bidBar: { width: '70%', position: 'absolute', borderRadius: 3 },
+  
   proteinBar: { width: '70%', backgroundColor: '#4DA6FF', borderRadius: 3 },
   proteinTargetLine: { position: 'absolute', left: SPACING.sm, right: SPACING.sm, height: 2, backgroundColor: '#316B9A', opacity: 0.6 },
   macroRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: SPACING.xs, borderBottomWidth: 1, borderBottomColor: COLORS.divider },
   macroDate: { color: COLORS.textSecondary, width: 90, fontFamily: FONT.bold },
   macroValues: { flexDirection: 'row', gap: SPACING.sm },
   macroItem: { color: COLORS.textPrimary, marginRight: SPACING.sm },
-  chatBtn: {
-    backgroundColor: COLORS.accent,
-    borderRadius: RADIUS.md,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: SPACING.md,
-  },
+  chatBtn: { backgroundColor: COLORS.accent, borderRadius: RADIUS.md, paddingVertical: 16, alignItems: 'center', marginTop: SPACING.md },
   chatBtnText: { color: COLORS.black, fontFamily: FONT.bold, fontSize: 15 },
-  seedBtn: {
-    backgroundColor: COLORS.surfaceAlt,
-    borderRadius: RADIUS.md,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: SPACING.sm,
-    borderWidth: 1,
-    borderColor: COLORS.divider,
-  },
+  seedBtn: { backgroundColor: COLORS.surfaceAlt, borderRadius: RADIUS.md, paddingVertical: 12, alignItems: 'center', marginTop: SPACING.sm, borderWidth: 1, borderColor: COLORS.divider },
   seedBtnText: { color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 13 },
 });

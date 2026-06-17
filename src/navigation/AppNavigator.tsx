@@ -22,6 +22,7 @@ export type RootStackParamList = {
   Tabs: undefined;
   Chat: undefined;
   DayDetail: { date: string };
+  Splash: undefined;
 };
 
 type TabParamList = {
@@ -90,15 +91,21 @@ function TabNavigator() {
   );
 }
 
+// Added the splash wrapper to keep the Loader inside the navigation stack
+function SplashScreen() {
+  return <Loader />;
+}
+
 export function AppNavigator() {
   const { profile, isLoading } = useProfileStore();
-
-  if (isLoading) return <Loader />;
 
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {profile === null ? (
+        {/* ONLY show Splash if loading AND we don't have a profile yet */}
+        {isLoading && !profile ? (
+          <Stack.Screen name="Splash" component={SplashScreen} />
+        ) : profile === null ? (
           <Stack.Screen name="Onboarding" component={OnboardingScreen} />
         ) : (
           <>
