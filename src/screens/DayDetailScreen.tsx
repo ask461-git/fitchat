@@ -38,7 +38,14 @@ export function DayDetailScreen({ route }: Props): React.ReactElement {
   };
 
   useEffect(() => {
-    fetchDayData().then(() => setIsLoading(false));
+    fetchDayData()
+      .catch((error) => {
+        console.error("🔥 ERROR FETCHING DATA:", error);
+      })
+      .finally(() => {
+        // This guarantees the spinner goes away even if the DB fails
+        setIsLoading(false); 
+      });
   }, [date]);
 
   const handleSaveWorkout = async () => {

@@ -11,6 +11,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Modal,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -68,11 +69,17 @@ export function WorkoutScreen(): React.ReactElement {
   const [editingWorkout, setEditingWorkout] = useState<WorkoutLog | null>(null);
   const [historyExercise, setHistoryExercise] = useState<string | null>(null);
 
-  // Cardio draft (not persisted until confirm)
+  // Custom Workout Modal States
+  const [isModalVisible, setModalVisible] = useState(false);
+  const [customName, setCustomName] = useState('');
+  const [customDuration, setCustomDuration] = useState('');
+  const [customCals, setCustomCals] = useState('');
+
+  // Cardio draft
   const [cardioDraft, setCardioDraft] = useState<{ activity: string; intensity?: string; duration?: string; distance?: string; estimate?: number; note?: string }>({ activity: '', intensity: '', duration: '', distance: '' });
   const [isEstimating, setIsEstimating] = useState(false);
 
-  // Lifting drafts keyed by templateIndex-exerciseIndex
+  // Lifting drafts
   const [liftingDraft, setLiftingDraft] = useState<Record<string, { setsArray: { weight: string; reps: string }[]; durationActive: string; durationRest: string }>>({});
 
   if (isLoading || !profile) return <Loader />;
@@ -108,7 +115,37 @@ export function WorkoutScreen(): React.ReactElement {
     }
   }
 
-  // Compute draft lifting estimate using calorie calculator
+  async function handleSaveCustomWorkout() {
+    if (!customName || !customDuration || !customCals) {
+      return Alert.alert('Missing Info', 'Please fill in all custom workout fields.');
+    }
+    const dur = parseInt(customDuration, 10);
+    const cals = parseInt(customCals, 10);
+    if (isNaN(dur) || isNaN(cals)) {
+      return Alert.alert('Invalid Numbers', 'Duration and calories must be numbers.');
+    }
+
+    setSaving(true);
+    setModalVisible(false);
+    try {
+      await addWorkout({
+        date: dayjs().format('YYYY-MM-DD'),
+        exerciseType: customName,
+        durationMinutes: dur,
+        caloriesBurned: cals,
+        notes: 'Manually added custom workout',
+      } as WorkoutLog);
+      await loadTodayWorkouts();
+      setCustomName('');
+      setCustomDuration('');
+      setCustomCals('');
+    } catch (e) {
+      Alert.alert('Error', 'Failed to save custom workout.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const liftingInputs: ExerciseInput[] = selectedTemplate.exercises.map((ex, idx) => {
     const key = `${selectedTemplateIndex}-${idx}`;
     const draft = liftingDraft[key] ?? { sets: String(ex.targetSets), durationActive: '0', durationRest: '0' };
@@ -120,11 +157,8 @@ export function WorkoutScreen(): React.ReactElement {
     };
   });
   const totalSessionMinutes = liftingInputs.reduce((s, it) => s + it.durationActive + it.durationRest, 0);
-  
-  // FIXED: Fallback to 0 if profile is mysteriously null
   const liftingCalc = calculateTotalSessionCalories(liftingInputs, totalSessionMinutes, profile?.currentWeightKg || 0);
 
-  // Running total: logged workouts + draft estimate (cardio or lifting)
   const loggedTotal = (todayWorkouts ?? []).reduce((s, w) => s + (w.caloriesBurned || 0), 0);
   const draftTotal = selectedTemplate.dayName.includes('Cardio') ? (cardioDraft.estimate || 0) : liftingCalc.grandTotal;
 
@@ -132,7 +166,6 @@ export function WorkoutScreen(): React.ReactElement {
     if (!profile) return Alert.alert('Error', 'Profile not loaded.');
     setSaving(true);
     try {
-      // For each exercise in the template, construct a WorkoutLog and persist
       for (let idx = 0; idx < selectedTemplate.exercises.length; idx++) {
         const ex = selectedTemplate.exercises[idx];
         const key = `${selectedTemplateIndex}-${idx}`;
@@ -157,7 +190,6 @@ export function WorkoutScreen(): React.ReactElement {
           notes: notes || '',
         } as WorkoutLog);
       }
-      // refresh
       await loadTodayWorkouts();
     } catch (e) {
       Alert.alert('Save failed', String(e));
@@ -170,7 +202,6 @@ export function WorkoutScreen(): React.ReactElement {
       <ScrollView ref={scrollRef} style={styles.root} contentContainerStyle={styles.content}>
         <Text style={styles.title}>{editingWorkout ? 'EDIT WORKOUT' : 'LOG WORKOUT'}</Text>
 
-        {/* Day selector */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: SPACING.md }}>
           {WORKOUT_TEMPLATES.map((t, idx) => (
             <TouchableOpacity key={t.dayName} onPress={() => setSelectedTemplateIndex(idx)} style={[styles.dayBtn, idx === selectedTemplateIndex && styles.dayBtnActive]}>
@@ -179,7 +210,6 @@ export function WorkoutScreen(): React.ReactElement {
           ))}
         </ScrollView>
 
-        {/* Template content */}
         {selectedTemplate.dayName.includes('Cardio') ? (
           <>
             <Text style={styles.fieldLabel}>ACTIVITY</Text>
@@ -295,7 +325,6 @@ export function WorkoutScreen(): React.ReactElement {
           </>
         )}
 
-        {/* Draft estimate preview */}
         <View style={styles.estimateRow}>
           <Text style={styles.estimateText}>Session estimate ≈ {selectedTemplate.dayName.includes('Cardio') ? (cardioDraft.estimate ?? 0) : liftingCalc.grandTotal} kcal</Text>
         </View>
@@ -303,7 +332,6 @@ export function WorkoutScreen(): React.ReactElement {
         <Text style={[styles.fieldLabel, { marginTop: SPACING.sm }]}>NOTES (optional)</Text>
         <TextInput style={[styles.input, { height: 72 }]} value={notes} onChangeText={setNotes} placeholder="Eg. Felt strong today" placeholderTextColor={COLORS.textSecondary} multiline />
 
-        {/* Actions: Log Session + Ask Kendrick */}
         <View style={[styles.actionRow, { marginTop: SPACING.sm }] }>
           <TouchableOpacity style={[styles.btn, saving && styles.btnDisabled]} onPress={handleLogLiftingSession} disabled={saving}>
             <Text style={styles.btnText}>{saving ? 'SAVING…' : 'LOG SESSION'}</Text>
@@ -313,23 +341,30 @@ export function WorkoutScreen(): React.ReactElement {
           </TouchableOpacity>
         </View>
 
-        {/* Today's workouts */}
-        {todayWorkouts.length > 0 && (
-          <>
-            <Text style={[styles.title, { marginTop: SPACING.lg }]}>TODAY'S WORKOUTS</Text>
-            {todayWorkouts.map(w => (
-              <View key={w.id} style={[styles.workoutCard] }>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.workoutName}>{w.exerciseType}</Text>
-                  <Text style={styles.workoutMeta}>{w.durationMinutes} min · {w.caloriesBurned} kcal</Text>
-                  {w.notes ? <Text style={styles.workoutNotes}>{w.notes}</Text> : null}
-                </View>
+        {/* --- ALWAYS VISIBLE HEADER WITH ADD BUTTON --- */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: SPACING.lg, marginBottom: SPACING.sm }}>
+          <Text style={[styles.title, { marginBottom: 0 }]}>TODAY'S WORKOUTS</Text>
+          <TouchableOpacity onPress={() => setModalVisible(true)}>
+            <Text style={{ color: COLORS.accent, fontFamily: FONT.bold, fontSize: 13 }}>+ ADD CUSTOM</Text>
+          </TouchableOpacity>
+        </View>
+
+        {todayWorkouts.length > 0 ? (
+          todayWorkouts.map(w => (
+            <View key={w.id} style={[styles.workoutCard] }>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.workoutName}>{w.exerciseType}</Text>
+                <Text style={styles.workoutMeta}>{w.durationMinutes} min · {w.caloriesBurned} kcal</Text>
+                {w.notes ? <Text style={styles.workoutNotes}>{w.notes}</Text> : null}
               </View>
-            ))}
-          </>
+            </View>
+          ))
+        ) : (
+          <Text style={{ color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 13, fontStyle: 'italic', marginBottom: SPACING.sm }}>
+            No workouts logged today.
+          </Text>
         )}
         
-        {/* Restored Last 7 Days Workout UI */}
         {recentLogs.length > 0 && (
           <>
             <Text style={[styles.title, { marginTop: SPACING.lg }]}>LAST 7 DAYS</Text>
@@ -356,7 +391,53 @@ export function WorkoutScreen(): React.ReactElement {
         
       </ScrollView>
 
-      {/* Sticky footer with running total */}
+      {/* Manual Workout Modal */}
+      <Modal visible={isModalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setModalVisible(false)}>
+          <TouchableOpacity activeOpacity={1} style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Add Custom Workout</Text>
+            
+            <Text style={styles.modalLabel}>Activity Name</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={customName}
+              onChangeText={setCustomName}
+              placeholder="e.g. Basketball, Swimming"
+              placeholderTextColor={COLORS.textSecondary}
+            />
+
+            <View style={{ flexDirection: 'row', gap: SPACING.md }}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalLabel}>Duration (min)</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={customDuration}
+                  onChangeText={setCustomDuration}
+                  keyboardType="number-pad"
+                  placeholder="60"
+                  placeholderTextColor={COLORS.textSecondary}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalLabel}>Calories Burned</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={customCals}
+                  onChangeText={setCustomCals}
+                  keyboardType="number-pad"
+                  placeholder="400"
+                  placeholderTextColor={COLORS.textSecondary}
+                />
+              </View>
+            </View>
+
+            <TouchableOpacity style={styles.modalBtn} onPress={handleSaveCustomWorkout}>
+              <Text style={styles.modalBtnText}>{saving ? 'SAVING...' : 'SAVE WORKOUT'}</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       <View style={styles.footer}>
         <Text style={styles.footerText}>Logged: {loggedTotal} kcal · Draft: {draftTotal} kcal · Session ≈ {loggedTotal + draftTotal} kcal</Text>
       </View>
@@ -394,4 +475,13 @@ const styles = StyleSheet.create({
   workoutNotes: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 11, marginTop: 2 },
   footer: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: COLORS.surface, padding: SPACING.md, borderTopWidth: 1, borderTopColor: COLORS.divider },
   footerText: { textAlign: 'center', color: COLORS.textPrimary, fontFamily: FONT.bold },
+  
+  // Modal Styles
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  modalCard: { backgroundColor: COLORS.surface, borderTopLeftRadius: RADIUS.xl, borderTopRightRadius: RADIUS.xl, padding: SPACING.lg, paddingBottom: SPACING.xl * 2 },
+  modalTitle: { color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 18, marginBottom: SPACING.lg },
+  modalLabel: { color: COLORS.textSecondary, fontFamily: FONT.bold, fontSize: 12, marginBottom: SPACING.xs },
+  modalInput: { backgroundColor: COLORS.surfaceAlt, color: COLORS.textPrimary, borderRadius: RADIUS.md, paddingHorizontal: SPACING.md, paddingVertical: 12, fontSize: 16, fontFamily: FONT.regular, borderWidth: 1, borderColor: COLORS.divider, marginBottom: SPACING.md },
+  modalBtn: { backgroundColor: COLORS.accent, borderRadius: RADIUS.md, paddingVertical: 14, alignItems: 'center', marginTop: SPACING.sm },
+  modalBtnText: { color: COLORS.black, fontFamily: FONT.bold, fontSize: 15 },
 });
