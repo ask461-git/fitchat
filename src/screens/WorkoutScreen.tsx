@@ -81,7 +81,11 @@ export function WorkoutScreen(): React.ReactElement {
   // Lifting drafts
   const [liftingDraft, setLiftingDraft] = useState<Record<string, { setsArray: { weight: string; reps: string }[]; durationActive: string; durationRest: string }>>({});
 
-  if (isLoading || !profile) return <Loader />;
+  // isLoading is the global dailyLogStore flag. App.tsx already hydrated all
+  // stores before this screen can render, so we must NOT use it as a gate here —
+  // any subsequent loadToday() call (e.g. from MealLogScreen) would set it to
+  // true and show a full-screen loader on this tab even though data is ready.
+  if (!profile) return <Loader />;
 
   const selectedTemplate = WORKOUT_TEMPLATES[selectedTemplateIndex];
 

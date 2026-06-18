@@ -60,15 +60,24 @@ export function MealLogScreen(): React.ReactElement {
   const todayStr = dayjs().format('YYYY-MM-DD');
   const tdee = profile ? Math.round(calculateTdee(profile)) : 2000;
 
+  // Hydrate stores once on mount. App.tsx already does this on startup, but
+  // calling here is a no-op after the first load (isLoading guard in store).
+  // Do NOT include todayLog in deps — that would create an infinite loop
+  // (loadToday completing updates todayLog → effect fires → loadToday again).
   useEffect(() => {
     loadToday();
     loadAllLogs();
+  }, [loadToday, loadAllLogs]);
+
+  // Re-fetch the per-entry meal list whenever todayLog changes (e.g. after the
+  // AI chat logs a meal). Kept separate so it doesn't re-trigger loadToday.
+  useEffect(() => {
     async function fetchEntries() {
       const entries = await db.getMealEntriesForDate(todayStr);
       setTodayEntries(entries);
     }
     fetchEntries();
-  }, [loadToday, loadAllLogs, todayStr, todayLog]);
+  }, [todayLog, todayStr]);
 
   // Compute clean totals
   const totalIn = todayLog ? getTotalIntake(todayLog) : 0;

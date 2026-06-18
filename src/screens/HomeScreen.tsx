@@ -53,12 +53,9 @@ export function HomeScreen(): React.ReactElement {
     return arr;
   }, [allLogs, tdee]);
 
- // if (profileLoading || logLoading || !profile || !todayLog) {
-//   return <Loader />;
-// }
-if (profileLoading || logLoading) {
-  return <Text>Loading...</Text>; // Temporary bypass
-}
+  if (profileLoading || logLoading || !profile || !todayLog) {
+    return <Loader />;
+  }
 
   const totalIn = getTotalIntake(todayLog);
   const burned = todayLog.workoutCalBurned;

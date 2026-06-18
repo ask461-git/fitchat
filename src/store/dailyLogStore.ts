@@ -53,7 +53,10 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
   isLoading: true,
 
   loadToday: async () => {
-    set({ isLoading: true });
+    // Only show the loading spinner on the very first load (no data yet).
+    // Subsequent refreshes must not set isLoading: true — doing so causes every
+    // screen subscribed to isLoading to flash a full-screen loader.
+    if (!get().todayLog) set({ isLoading: true });
     const tdee = getTdeeFromStore();
     const log = await db.getOrCreateDailyLog(todayStr(), tdee);
     set({ todayLog: log, isLoading: false });
