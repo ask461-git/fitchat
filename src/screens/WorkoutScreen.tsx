@@ -18,7 +18,6 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { WorkoutLog } from '../models';
 import { WORKOUT_TEMPLATES } from '../data/workoutTemplates';
 import { estimateCardioForUser, confirmAndLogCardio } from '../services/cardioFlow';
-import { getAllWorkouts } from '../database/db';
 import type { ExerciseInput } from '../utils/calorieCalculator';
 import { calculateTotalSessionCalories } from '../utils/calorieCalculator';
 import { useProfileStore } from '../store/profileStore';
@@ -82,10 +81,7 @@ export function WorkoutScreen(): React.ReactElement {
   // Lifting drafts
   const [liftingDraft, setLiftingDraft] = useState<Record<string, { setsArray: { weight: string; reps: string }[]; durationActive: string; durationRest: string }>>({});
 
-  //if (isLoading || !profile) return <Loader />;
-  if (profileLoading || logLoading) {
-  return <Text>Loading...</Text>; // Temporary bypass
-}
+  if (isLoading || !profile) return <Loader />;
 
   const selectedTemplate = WORKOUT_TEMPLATES[selectedTemplateIndex];
 
@@ -151,7 +147,7 @@ export function WorkoutScreen(): React.ReactElement {
 
   const liftingInputs: ExerciseInput[] = selectedTemplate.exercises.map((ex, idx) => {
     const key = `${selectedTemplateIndex}-${idx}`;
-    const draft = liftingDraft[key] ?? { sets: String(ex.targetSets), durationActive: '0', durationRest: '0' };
+    const draft = liftingDraft[key] ?? { setsArray: [], durationActive: '0', durationRest: '0' };
     return {
       metActive: ex.defaultMetActive,
       durationActive: parseFloat(draft.durationActive || '0') || 0,
@@ -273,20 +269,7 @@ export function WorkoutScreen(): React.ReactElement {
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                       <Text style={styles.workoutName}>{ex.name}</Text>
-                        <TouchableOpacity onPress={async () => {
-                          try {
-                            const all = await getAllWorkouts();
-                            const filtered = all.filter(w => w.exerciseType.toLowerCase().includes(ex.name.toLowerCase()));
-                            const max = filtered.reduce((m, w) => {
-                              const s = w.sets ?? [];
-                              const localMax = s.reduce((mm, ss) => Math.max(mm, ss.weightKg ?? 0), 0);
-                              return Math.max(m, localMax);
-                            }, 0);
-                            console.log(`Max weight for ${ex.name}: ${max} kg`);
-                          } catch (e) {
-                            console.error('Failed to compute history max for', ex.name, e);
-                          }
-                        }}>
+                        <TouchableOpacity onPress={() => setHistoryExercise(ex.name)}>
                           <Text style={{ color: COLORS.accent }}>📈</Text>
                         </TouchableOpacity>
                     </View>

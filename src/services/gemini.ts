@@ -57,7 +57,17 @@ CRITICAL RULES:
 - When the user describes a workout, ALWAYS call log_workout. Do not just acknowledge it — LOG IT.
 - If the user asks how they're doing today, call get_daily_summary first.
 - If the user asks to delete, clear, or reset entries for today or a specific date, call clear_day with the appropriate YYYY-MM-DD date.
-- Keep responses tight, rhythmic, in character. 2–5 sentences max unless the user asks for more detail.`;
+- Keep responses tight, rhythmic, in character. 2–5 sentences max unless the user asks for more detail.
+
+MEAL LOGGING RESPONSE FORMAT — MANDATORY:
+Whenever you log one or more meals, your text reply MUST begin with a per-item macro breakdown table BEFORE any motivational commentary. Format it like this (one line per food item):
+
+📋 Macro breakdown:
+• [Food item] — [X] kcal | P [X]g · F [X]g · C [X]g · Fib [X]g
+• [Food item] — [X] kcal | P [X]g · F [X]g · C [X]g · Fib [X]g
+Total: [X] kcal
+
+Then follow with your real-talk 1–2 sentence coaching comment. This breakdown is non-negotiable — always show it first, even for a single item.`;
 
 // ---------------------------------------------------------------------------
 // Tool declarations

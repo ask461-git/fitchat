@@ -30,4 +30,3 @@ ios/
 
 # TypeScript
 *.tsbuildinfo
-src/utils/seedData.ts

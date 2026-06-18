@@ -94,17 +94,6 @@ export function ChatScreen(): React.ReactElement {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={90}
     >
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>K</Text>
-        </View>
-        <View>
-          <Text style={styles.agentName}>Kendrick</Text>
-          <Text style={styles.agentSub}>Your Compton fitness advisor</Text>
-        </View>
-      </View>
-
       {/* Messages */}
       <FlatList
         ref={flatRef}
@@ -352,27 +341,6 @@ export function ChatScreen(): React.ReactElement {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: COLORS.background },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
-    backgroundColor: COLORS.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.divider,
-    gap: SPACING.sm,
-  },
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: COLORS.accent,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarText: { color: COLORS.black, fontFamily: FONT.bold, fontSize: 18 },
-  agentName: { color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 14 },
-  agentSub: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 11 },
   listContent: { padding: SPACING.md, paddingBottom: SPACING.sm },
   loadHistoryBtn: {
     alignSelf: 'center',
