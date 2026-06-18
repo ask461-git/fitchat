@@ -17,7 +17,9 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { WorkoutLog } from '../models';
 import { WORKOUT_TEMPLATES } from '../data/workoutTemplates';
+import type { ExerciseTemplate } from '../data/workoutTemplates';
 import { estimateCardioForUser, confirmAndLogCardio } from '../services/cardioFlow';
+import { estimateExerciseCalories } from '../services/gymCalc';
 import type { ExerciseInput } from '../utils/calorieCalculator';
 import { calculateTotalSessionCalories } from '../utils/calorieCalculator';
 import { useProfileStore } from '../store/profileStore';
@@ -80,6 +82,8 @@ export function WorkoutScreen(): React.ReactElement {
 
   // Lifting drafts
   const [liftingDraft, setLiftingDraft] = useState<Record<string, { setsArray: { weight: string; reps: string }[]; durationActive: string; durationRest: string }>>({});
+  type ExerciseEstimate = { calories: number; reasoning: string; estimating: boolean };
+  const [exerciseEstimates, setExerciseEstimates] = useState<Record<string, ExerciseEstimate>>({});
 
   // isLoading is the global dailyLogStore flag. App.tsx already hydrated all
   // stores before this screen can render, so we must NOT use it as a gate here —
@@ -163,7 +167,21 @@ export function WorkoutScreen(): React.ReactElement {
   const liftingCalc = calculateTotalSessionCalories(liftingInputs, totalSessionMinutes, profile?.currentWeightKg || 0);
 
   const loggedTotal = (todayWorkouts ?? []).reduce((s, w) => s + (w.caloriesBurned || 0), 0);
-  const draftTotal = selectedTemplate.dayName.includes('Cardio') ? (cardioDraft.estimate || 0) : liftingCalc.grandTotal;
+  // AI-aware total: use per-exercise AI estimate where available, static MET otherwise
+  const aiAwareLiftingTotal = selectedTemplate.exercises.reduce((sum, ex, idx) => {
+    const key = `${selectedTemplateIndex}-${idx}`;
+    const est = exerciseEstimates[key];
+    if (est && !est.estimating && est.calories > 0) return sum + est.calories;
+    const d = liftingDraft[key] ?? { setsArray: [], durationActive: '0', durationRest: '0' };
+    const inp: ExerciseInput = {
+      metActive: ex.defaultMetActive,
+      durationActive: parseFloat(d.durationActive || '0') || 0,
+      metRest: ex.defaultMetRest,
+      durationRest: parseFloat(d.durationRest || '0') || 0,
+    };
+    return sum + calculateTotalSessionCalories([inp], inp.durationActive + inp.durationRest, profile?.currentWeightKg || 0).grandTotal;
+  }, 0);
+  const draftTotal = selectedTemplate.dayName.includes('Cardio') ? (cardioDraft.estimate || 0) : aiAwareLiftingTotal;
 
   async function handleLogLiftingSession() {
     if (!profile) return Alert.alert('Error', 'Profile not loaded.');
@@ -183,12 +201,14 @@ export function WorkoutScreen(): React.ReactElement {
           durationRest: parseFloat(draft.durationRest || '0') || 0,
         };
         const calc = calculateTotalSessionCalories([input], input.durationActive + input.durationRest, profile.currentWeightKg);
+        const aiEst = exerciseEstimates[key];
+        const caloriesBurned = (aiEst && !aiEst.estimating && aiEst.calories > 0) ? aiEst.calories : calc.grandTotal;
 
         await addWorkout({
           date: dayjs().format('YYYY-MM-DD'),
           exerciseType: ex.name,
           durationMinutes: Math.round(input.durationActive + input.durationRest),
-          caloriesBurned: calc.grandTotal,
+          caloriesBurned,
           sets: setsStructured,
           notes: notes || '',
         } as WorkoutLog);
@@ -198,6 +218,32 @@ export function WorkoutScreen(): React.ReactElement {
       Alert.alert('Save failed', String(e));
     }
     setSaving(false);
+  }
+
+  async function handleEstimateExercise(
+    key: string,
+    ex: ExerciseTemplate,
+    draft: { setsArray: { weight: string; reps: string }[]; durationActive: string; durationRest: string },
+  ) {
+    if (!profile) return;
+    setExerciseEstimates(prev => ({ ...prev, [key]: { calories: prev[key]?.calories ?? 0, reasoning: '', estimating: true } }));
+    try {
+      const result = await estimateExerciseCalories({
+        exerciseName: ex.name,
+        sets: draft.setsArray.map(s => ({
+          weightKg: s.weight ? parseFloat(s.weight) : undefined,
+          reps: s.reps ? parseInt(s.reps, 10) : undefined,
+        })),
+        durationActiveMin: parseFloat(draft.durationActive || '0') || 0,
+        durationRestMin: parseFloat(draft.durationRest || '0') || 0,
+        userWeightKg: profile.currentWeightKg,
+        defaultMetActive: ex.defaultMetActive,
+        defaultMetRest: ex.defaultMetRest,
+      });
+      setExerciseEstimates(prev => ({ ...prev, [key]: { calories: result.caloriesBurned, reasoning: result.reasoning, estimating: false } }));
+    } catch {
+      setExerciseEstimates(prev => ({ ...prev, [key]: { calories: 0, reasoning: 'Estimation failed', estimating: false } }));
+    }
   }
 
   return (
@@ -268,6 +314,8 @@ export function WorkoutScreen(): React.ReactElement {
             {selectedTemplate.exercises.map((ex, idx) => {
               const key = `${selectedTemplateIndex}-${idx}`;
               const draft = liftingDraft[key] ?? { setsArray: Array.from({ length: ex.targetSets }).map(() => ({ weight: '', reps: '' })), durationActive: '0', durationRest: '0' };
+              const est = exerciseEstimates[key];
+              const canEstimate = !!(draft.durationActive && parseFloat(draft.durationActive) > 0);
               return (
                 <View key={key} style={styles.liftRow}>
                   <View style={{ flex: 1 }}>
@@ -308,6 +356,30 @@ export function WorkoutScreen(): React.ReactElement {
                         <TextInput style={styles.input} value={draft.durationRest} onChangeText={(v) => setLiftingDraft(d => ({ ...d, [key]: { ...draft, durationRest: v } }))} keyboardType="number-pad" />
                       </View>
                     </View>
+
+                    <TouchableOpacity
+                      style={[styles.btnOutline, { marginTop: SPACING.sm }, (est?.estimating || !canEstimate) && styles.btnDisabled]}
+                      onPress={() => handleEstimateExercise(key, ex, draft)}
+                      disabled={est?.estimating || !canEstimate}
+                    >
+                      {est?.estimating ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                          <ActivityIndicator size="small" color={COLORS.accent} style={{ marginRight: 6 }} />
+                          <Text style={styles.btnOutlineText}>Estimating…</Text>
+                        </View>
+                      ) : (
+                        <Text style={styles.btnOutlineText}>⚡ Estimate Calories (AI)</Text>
+                      )}
+                    </TouchableOpacity>
+
+                    {est && !est.estimating && est.calories > 0 && (
+                      <View style={{ marginTop: SPACING.xs, backgroundColor: COLORS.surface, borderRadius: RADIUS.sm, padding: SPACING.sm }}>
+                        <Text style={{ color: COLORS.accent, fontFamily: FONT.bold, fontSize: 13 }}>≈ {est.calories} kcal</Text>
+                        {!!est.reasoning && (
+                          <Text style={{ color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 11, marginTop: 2 }}>{est.reasoning}</Text>
+                        )}
+                      </View>
+                    )}
                   </View>
                 </View>
               );
@@ -316,7 +388,7 @@ export function WorkoutScreen(): React.ReactElement {
         )}
 
         <View style={styles.estimateRow}>
-          <Text style={styles.estimateText}>Session estimate ≈ {selectedTemplate.dayName.includes('Cardio') ? (cardioDraft.estimate ?? 0) : liftingCalc.grandTotal} kcal</Text>
+          <Text style={styles.estimateText}>Session estimate ≈ {draftTotal} kcal</Text>
         </View>
 
         <Text style={[styles.fieldLabel, { marginTop: SPACING.sm }]}>NOTES (optional)</Text>
