@@ -19,6 +19,7 @@ import { StatCard } from '../components/StatCard';
 import { Loader } from '../components/Loader';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme/theme';
 import * as db from '../database/db';
+import { getLastSyncInfo, type LastSyncInfo } from '../services/sheetsSync';
 
 export function ProfileScreen(): React.ReactElement {
   const { profile, isLoading, saveProfile } = useProfileStore();
@@ -29,6 +30,7 @@ export function ProfileScreen(): React.ReactElement {
   const [sheetsUrl, setSheetsUrl] = useState('');
   const [sheetsUrlInput, setSheetsUrlInput] = useState('');
   const [savingUrl, setSavingUrl] = useState(false);
+  const [lastSync, setLastSync] = useState<LastSyncInfo | null>(null);
   const [apiUsage, setApiUsage] = useState<{
     totalPromptTokens: number;
     totalCandidatesTokens: number;
@@ -41,6 +43,7 @@ export function ProfileScreen(): React.ReactElement {
       setSheetsUrl(url);
       setSheetsUrlInput(url);
     });
+    getLastSyncInfo().then(setLastSync);
   }, []);
 
   if (isLoading || !profile) return <Loader />;
@@ -88,19 +91,35 @@ export function ProfileScreen(): React.ReactElement {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ test: true }),
         });
-        const json = await res.json().catch(() => null);
-        if (res.ok && (json === null || json?.ok === true)) {
+        const text = await res.text();
+        let json: { ok?: boolean; error?: string } | null = null;
+        try { json = JSON.parse(text); } catch { json = null; }
+
+        // The Apps Script doPost always replies with JSON {ok: true}. If we get
+        // anything else (e.g. an HTML sign-in page), the deployment is not public
+        // and the sync would silently fail — so treat that as an error, not success.
+        if (res.ok && json?.ok === true) {
           setSyncStatus('ok');
           // Try a full sync to ensure app data flows through.
           try { await syncToSheets(); } catch (_) { /* ignore */ }
+          setLastSync(await getLastSyncInfo());
           Alert.alert('Saved', 'Sheets URL saved and test succeeded.');
+        } else if (json?.ok === false) {
+          setSyncStatus('err');
+          Alert.alert('Script error', `The Apps Script ran but reported an error:\n\n${json.error ?? 'unknown error'}`);
         } else {
           setSyncStatus('err');
-          Alert.alert('Saved', 'Sheets URL saved but test request failed.');
+          const looksLikeLogin = /<html|sign in|accounts\.google/i.test(text);
+          Alert.alert(
+            'Sync not working',
+            looksLikeLogin
+              ? 'Google returned a sign-in page instead of running your script. Re-deploy the web app with "Who has access" set to "Anyone".'
+              : 'The URL did not return the expected response. Make sure you pasted the deployment URL ending in /exec.',
+          );
         }
       } catch (err) {
         setSyncStatus('err');
-        Alert.alert('Saved', 'Sheets URL saved but network test failed.');
+        Alert.alert('Saved', 'Sheets URL saved but the network test failed. Check your connection and the URL.');
       } finally {
         setSavingUrl(false);
       }
@@ -115,8 +134,12 @@ export function ProfileScreen(): React.ReactElement {
     setSyncing(true);
     setSyncStatus('idle');
     try {
-      await syncToSheets();
-      setSyncStatus('ok');
+      const result = await syncToSheets();
+      setLastSync(await getLastSyncInfo());
+      setSyncStatus(result && result.kind === 'ok' ? 'ok' : 'err');
+      if (result && result.kind !== 'ok') {
+        Alert.alert('Sync issue', result.message);
+      }
     } catch {
       setSyncStatus('err');
     } finally {
@@ -186,6 +209,26 @@ export function ProfileScreen(): React.ReactElement {
               </Text>
             </TouchableOpacity>
           </View>
+          {lastSync && (
+            <>
+              <View style={styles.divider} />
+              <View style={{ paddingVertical: SPACING.sm }}>
+                <Text
+                  style={[
+                    styles.syncStatusText,
+                    { color: lastSync.kind === 'ok' ? COLORS.deficit : COLORS.surplus },
+                  ]}
+                >
+                  {lastSync.kind === 'ok' ? '✓ Last sync OK' : '✗ Last sync failed'}
+                  {'  ·  '}
+                  {new Date(lastSync.at).toLocaleString()}
+                </Text>
+                {lastSync.kind !== 'ok' && (
+                  <Text style={styles.syncStatusDetail}>{lastSync.message}</Text>
+                )}
+              </View>
+            </>
+          )}
         </View>
       </View>
 
@@ -378,6 +421,8 @@ const styles = StyleSheet.create({
   },
   syncLabel: { color: COLORS.textPrimary, fontFamily: FONT.regular, fontSize: 13 },
   syncNote: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 11, marginTop: 3 },
+  syncStatusText: { fontFamily: FONT.bold, fontSize: 12 },
+  syncStatusDetail: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 11, marginTop: 4, lineHeight: 15 },
   urlRow: {
     flexDirection: 'row',
     alignItems: 'center',

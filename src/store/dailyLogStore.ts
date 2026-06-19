@@ -4,6 +4,7 @@ import * as db from '../database/db';
 import type { DailyLog, WorkoutLog, MealEntry } from '../models';
 import { getTdeeFromStore } from './profileStore';
 import { syncDayToSheets } from '../services/sheetsSync';
+import type { SyncResult } from '../services/sheetsSync';
 
 function todayStr(): string {
   return dayjs().format('YYYY-MM-DD');
@@ -42,7 +43,7 @@ export interface DailyLogState {
   addWorkout: (workout: WorkoutLog) => Promise<void>;
   deleteWorkout: (workout: WorkoutLog) => Promise<void>;
   deleteMealEntry: (entry: MealEntry) => Promise<void>;
-  syncToSheets: () => Promise<void>;
+  syncToSheets: () => Promise<SyncResult | null>;
   clearDay: (date: string) => Promise<void>;
 }
 
@@ -151,12 +152,12 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
 
   syncToSheets: async () => {
     const log = get().todayLog;
-    if (!log) return;
+    if (!log) return null;
     const [meals, workouts] = await Promise.all([
       db.getMealEntriesForDate(log.date),
       db.getWorkoutsForDate(log.date),
     ]);
-    await syncDayToSheets(log, meals, workouts);
+    return syncDayToSheets(log, meals, workouts);
   },
 
   recalcDailyMacroTotals: async (date) => {
