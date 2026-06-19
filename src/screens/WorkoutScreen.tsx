@@ -82,7 +82,7 @@ export function WorkoutScreen(): React.ReactElement {
 
   // Lifting drafts
   const [liftingDraft, setLiftingDraft] = useState<Record<string, { setsArray: { weight: string; reps: string }[]; durationActive: string; durationRest: string }>>({});
-  type ExerciseEstimate = { calories: number; reasoning: string; estimating: boolean };
+  type ExerciseEstimate = { calories: number; reasoning: string; metActive: number; metRest: number; estimating: boolean };
   const [exerciseEstimates, setExerciseEstimates] = useState<Record<string, ExerciseEstimate>>({});
 
   // isLoading is the global dailyLogStore flag. App.tsx already hydrated all
@@ -226,7 +226,7 @@ export function WorkoutScreen(): React.ReactElement {
     draft: { setsArray: { weight: string; reps: string }[]; durationActive: string; durationRest: string },
   ) {
     if (!profile) return;
-    setExerciseEstimates(prev => ({ ...prev, [key]: { calories: prev[key]?.calories ?? 0, reasoning: '', estimating: true } }));
+    setExerciseEstimates(prev => ({ ...prev, [key]: { calories: prev[key]?.calories ?? 0, reasoning: '', metActive: 0, metRest: 0, estimating: true } }));
     try {
       const result = await estimateExerciseCalories({
         exerciseName: ex.name,
@@ -240,9 +240,9 @@ export function WorkoutScreen(): React.ReactElement {
         defaultMetActive: ex.defaultMetActive,
         defaultMetRest: ex.defaultMetRest,
       });
-      setExerciseEstimates(prev => ({ ...prev, [key]: { calories: result.caloriesBurned, reasoning: result.reasoning, estimating: false } }));
+      setExerciseEstimates(prev => ({ ...prev, [key]: { calories: result.caloriesBurned, reasoning: result.reasoning, metActive: result.metActive, metRest: result.metRest, estimating: false } }));
     } catch {
-      setExerciseEstimates(prev => ({ ...prev, [key]: { calories: 0, reasoning: 'Estimation failed', estimating: false } }));
+      setExerciseEstimates(prev => ({ ...prev, [key]: { calories: 0, reasoning: 'Estimation failed', metActive: 0, metRest: 0, estimating: false } }));
     }
   }
 
@@ -375,6 +375,11 @@ export function WorkoutScreen(): React.ReactElement {
                     {est && !est.estimating && est.calories > 0 && (
                       <View style={{ marginTop: SPACING.xs, backgroundColor: COLORS.surface, borderRadius: RADIUS.sm, padding: SPACING.sm }}>
                         <Text style={{ color: COLORS.accent, fontFamily: FONT.bold, fontSize: 13 }}>≈ {est.calories} kcal</Text>
+                        {est.metActive > 0 && (
+                          <Text style={{ color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 11, marginTop: 4 }}>
+                            MET {est.metActive.toFixed(1)} active · {est.metRest.toFixed(1)} rest
+                          </Text>
+                        )}
                         {!!est.reasoning && (
                           <Text style={{ color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 11, marginTop: 2 }}>{est.reasoning}</Text>
                         )}
