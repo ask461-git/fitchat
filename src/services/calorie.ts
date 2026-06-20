@@ -8,20 +8,21 @@ export function accumulatedDeficit(logs: DailyLog[]): number {
     .reduce((sum, l) => sum + Math.abs(getNetCal(l)), 0);
 }
 
-/** Median daily deficit (kcal). Returns null if no deficit days yet. */
-export function medianDailyDeficit(logs: DailyLog[]): number | null {
-  const deficits = logs
-    .map(l => getNetCal(l))
-    .filter(n => n < 0)
-    .map(n => Math.abs(n))
-    .sort((a, b) => a - b);
+/**
+ * Average daily net deficit (kcal) across all logged days. Surplus days
+ * (net >= 0) offset deficit days so weekday deficits and weekend surpluses
+ * net out. Returns a positive number for a net deficit, or null when there
+ * are no logs or the average is a net surplus (no progress toward target).
+ */
+export function averageDailyDeficit(logs: DailyLog[]): number | null {
+  if (logs.length === 0) return null;
 
-  if (deficits.length === 0) return null;
+  const totalNet = logs.reduce((sum, l) => sum + getNetCal(l), 0);
+  const avgNet = totalNet / logs.length;
 
-  const mid = Math.floor(deficits.length / 2);
-  return deficits.length % 2 === 0
-    ? (deficits[mid - 1] + deficits[mid]) / 2
-    : deficits[mid];
+  // avgNet < 0 means a net deficit; return it as a positive rate.
+  if (avgNet >= 0) return null;
+  return Math.abs(avgNet);
 }
 
 /** Days until target weight is reached. Null if insufficient data. */
@@ -33,10 +34,10 @@ export function etaDays(
   const kgToLose = currentWeightKg - targetWeightKg;
   if (kgToLose <= 0) return 0;
 
-  const median = medianDailyDeficit(logs);
-  if (!median || median <= 0) return null;
+  const avgDeficit = averageDailyDeficit(logs);
+  if (!avgDeficit || avgDeficit <= 0) return null;
 
-  return Math.ceil((kgToLose * 7700) / median);
+  return Math.ceil((kgToLose * 7700) / avgDeficit);
 }
 
 /** Target date based on ETA. Null if insufficient data. */
