@@ -27,6 +27,20 @@ function applyMealCal(
   }
 }
 
+// Debounced sync: rapid changes (e.g. logging several meals in one chat turn)
+// collapse into a single network call instead of one POST per change. This
+// keeps the Google Sheet from being hammered and avoids concurrent writes.
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+const SYNC_DEBOUNCE_MS = 2000;
+
+function scheduleSheetSync(run: () => void): void {
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    run();
+  }, SYNC_DEBOUNCE_MS);
+}
+
 export interface DailyLogState {
   todayLog: DailyLog | null;
   allLogs: DailyLog[];
@@ -81,7 +95,7 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
     const allLogs = await db.getAllDailyLogs();
     set({ todayLog: updated, allLogs });
     await get().recalcDailyMacroTotals(updated.date);
-    get().syncToSheets();
+    scheduleSheetSync(() => get().syncToSheets());
   },
 
   setMealCalories: async (category, calories) => {
@@ -92,7 +106,7 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
     const allLogs = await db.getAllDailyLogs();
     set({ todayLog: updated, allLogs });
     await get().recalcDailyMacroTotals(updated.date);
-    get().syncToSheets();
+    scheduleSheetSync(() => get().syncToSheets());
   },
 
   // UPDATED: Fetches and updates the log for the specific date, not just today
@@ -113,7 +127,7 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
       set({ allLogs });
     }
     
-    get().syncToSheets();
+    scheduleSheetSync(() => get().syncToSheets());
   },
 
   // UPDATED: Now passes the workout's specific date to addWorkoutCalories

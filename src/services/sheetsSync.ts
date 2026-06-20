@@ -27,8 +27,13 @@
  * }
  *
  * function doPost(e) {
+ *   // Serialize concurrent syncs. Without this, two requests can both read the
+ *   // sheet, both delete nothing, and both append — producing duplicate rows.
+ *   const lock = LockService.getScriptLock();
+ *   lock.waitLock(30000);
  *   try {
  *     const payload = JSON.parse(e.postData.contents);
+ *     if (payload.test) return jsonOut({ ok: true });
  *     const ss = SpreadsheetApp.getActiveSpreadsheet();
  *
  *     if (payload.dailySummary) upsertRow(ss, 'DailySummary', payload.dailySummary.date, [
@@ -52,30 +57,51 @@
  *       w.date, w.exerciseType, w.durationMinutes, w.caloriesBurned, w.notes,
  *     ]));
  *
- *     return ContentService.createTextOutput(JSON.stringify({ ok: true }))
- *       .setMimeType(ContentService.MimeType.JSON);
+ *     return jsonOut({ ok: true });
  *   } catch (err) {
- *     return ContentService.createTextOutput(JSON.stringify({ ok: false, error: String(err) }))
- *       .setMimeType(ContentService.MimeType.JSON);
+ *     return jsonOut({ ok: false, error: String(err) });
+ *   } finally {
+ *     lock.releaseLock();
  *   }
+ * }
+ *
+ * function jsonOut(obj) {
+ *   return ContentService.createTextOutput(JSON.stringify(obj))
+ *     .setMimeType(ContentService.MimeType.JSON);
+ * }
+ *
+ * const HEADERS = {
+ *   DailySummary: ['Date','Breakfast','Morning Snack','Lunch','Evening Snack','Dinner','Total Intake','Workout Burned','TDEE','Net Calories'],
+ *   MealEntries:  ['Date','Category','Food','Calories'],
+ *   WorkoutLogs:  ['Date','Exercise','Duration (min)','Calories Burned','Notes'],
+ * };
+ *
+ * // Normalize cell values and keys to 'yyyy-MM-dd'. Sheets silently coerces the
+ * // date column into Date objects; without this, String(dateObj) never matched
+ * // the 'yyyy-MM-dd' key, so old rows were never deleted — only re-appended.
+ * function dateKey(v) {
+ *   if (v instanceof Date) return Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+ *   return String(v).trim();
+ * }
+ *
+ * function ensureSheet(ss, name) {
+ *   let sheet = ss.getSheetByName(name);
+ *   if (!sheet) {
+ *     sheet = ss.insertSheet(name);
+ *     if (HEADERS[name]) sheet.appendRow(HEADERS[name]);
+ *   }
+ *   // Force the Date column to plain text so Sheets stops converting it to a
+ *   // Date object (the root cause of the duplicate-row buildup).
+ *   sheet.getRange('A:A').setNumberFormat('@');
+ *   return sheet;
  * }
  *
  * // Upsert a single row identified by a key in column A.
  * function upsertRow(ss, sheetName, key, values) {
- *   let sheet = ss.getSheetByName(sheetName);
- *   if (!sheet) {
- *     sheet = ss.insertSheet(sheetName);
- *     // Write headers on first creation.
- *     const headers = {
- *       DailySummary: ['Date','Breakfast','Morning Snack','Lunch','Evening Snack','Dinner','Total Intake','Workout Burned','TDEE','Net Calories'],
- *       MealEntries:  ['Date','Category','Food','Calories'],
- *       WorkoutLogs:  ['Date','Exercise','Duration (min)','Calories Burned','Notes'],
- *     };
- *     if (headers[sheetName]) sheet.appendRow(headers[sheetName]);
- *   }
+ *   const sheet = ensureSheet(ss, sheetName);
  *   const data = sheet.getDataRange().getValues();
  *   for (let i = 1; i < data.length; i++) {
- *     if (String(data[i][0]) === String(key)) {
+ *     if (dateKey(data[i][0]) === dateKey(key)) {
  *       sheet.getRange(i + 1, 1, 1, values.length).setValues([values]);
  *       return;
  *     }
@@ -85,24 +111,21 @@
  *
  * // Delete all rows for a date then re-append the new set.
  * function replaceRowsForDate(ss, sheetName, date, rows) {
- *   let sheet = ss.getSheetByName(sheetName);
- *   if (!sheet) {
- *     sheet = ss.insertSheet(sheetName);
- *     const headers = {
- *       MealEntries: ['Date','Category','Food','Calories'],
- *       WorkoutLogs: ['Date','Exercise','Duration (min)','Calories Burned','Notes'],
- *     };
- *     if (headers[sheetName]) sheet.appendRow(headers[sheetName]);
- *   }
- *   // Delete existing rows for this date (scan from bottom to avoid index shift).
+ *   const sheet = ensureSheet(ss, sheetName);
  *   const data = sheet.getDataRange().getValues();
+ *   // Scan from bottom to avoid index shift as rows are deleted.
  *   for (let i = data.length - 1; i >= 1; i--) {
- *     if (String(data[i][0]) === String(date)) sheet.deleteRow(i + 1);
+ *     if (dateKey(data[i][0]) === dateKey(date)) sheet.deleteRow(i + 1);
  *   }
  *   rows.forEach(r => sheet.appendRow(r));
  * }
  *
  * ── END GAS SCRIPT ──────────────────────────────────────────────────────────
+ *
+ * ⚠️  ONE-TIME CLEANUP: your existing sheet already has duplicate rows. After
+ * pasting this script and re-deploying (New version), clear the MealEntries and
+ * WorkoutLogs tabs (keep the header row) once. The next sync will rewrite clean,
+ * de-duplicated rows.
  */
 
 import type { DailyLog, MealEntry, WorkoutLog } from '../models';
