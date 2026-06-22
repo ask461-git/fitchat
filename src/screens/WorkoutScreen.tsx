@@ -34,7 +34,7 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 export function WorkoutScreen(): React.ReactElement {
   const navigation = useNavigation<Nav>();
   const { profile } = useProfileStore();
-  const { todayWorkouts, loadTodayWorkouts, loadAllLogs, isLoading, addWorkout, allLogs } = useDailyLogStore();
+  const { todayWorkouts, loadTodayWorkouts, loadAllLogs, isLoading, addWorkout, updateWorkout, deleteWorkout, allLogs } = useDailyLogStore();
 
   const recentLogs = useMemo(() => {
     const logs = [] as any[];
@@ -135,22 +135,70 @@ export function WorkoutScreen(): React.ReactElement {
     setSaving(true);
     setModalVisible(false);
     try {
-      await addWorkout({
-        date: dayjs().format('YYYY-MM-DD'),
-        exerciseType: customName,
-        durationMinutes: dur,
-        caloriesBurned: cals,
-        notes: 'Manually added custom workout',
-      } as WorkoutLog);
+      if (editingWorkout) {
+        await updateWorkout({
+          ...editingWorkout,
+          exerciseType: customName,
+          durationMinutes: dur,
+          caloriesBurned: cals,
+        });
+      } else {
+        await addWorkout({
+          date: dayjs().format('YYYY-MM-DD'),
+          exerciseType: customName,
+          durationMinutes: dur,
+          caloriesBurned: cals,
+          notes: 'Manually added custom workout',
+        } as WorkoutLog);
+      }
       await loadTodayWorkouts();
+      setEditingWorkout(null);
       setCustomName('');
       setCustomDuration('');
       setCustomCals('');
     } catch (e) {
-      Alert.alert('Error', 'Failed to save custom workout.');
+      Alert.alert('Error', `Failed to save custom workout.`);
     } finally {
       setSaving(false);
     }
+  }
+
+  function handleEditWorkout(w: WorkoutLog) {
+    setEditingWorkout(w);
+    setCustomName(w.exerciseType);
+    setCustomDuration(String(w.durationMinutes ?? ''));
+    setCustomCals(String(w.caloriesBurned ?? ''));
+    setModalVisible(true);
+  }
+
+  function handleDeleteWorkout(w: WorkoutLog) {
+    Alert.alert(
+      'Delete workout',
+      `Remove "${w.exerciseType}" (${w.caloriesBurned} kcal)?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteWorkout(w);
+              await loadTodayWorkouts();
+            } catch (e) {
+              Alert.alert('Error', 'Failed to delete workout.');
+            }
+          },
+        },
+      ],
+    );
+  }
+
+  function closeCustomModal() {
+    setModalVisible(false);
+    setEditingWorkout(null);
+    setCustomName('');
+    setCustomDuration('');
+    setCustomCals('');
   }
 
   const liftingInputs: ExerciseInput[] = selectedTemplate.exercises.map((ex, idx) => {
@@ -424,6 +472,14 @@ export function WorkoutScreen(): React.ReactElement {
                 <Text style={styles.workoutMeta}>{w.durationMinutes} min · {w.caloriesBurned} kcal</Text>
                 {w.notes ? <Text style={styles.workoutNotes}>{w.notes}</Text> : null}
               </View>
+              <View style={styles.workoutActions}>
+                <TouchableOpacity onPress={() => handleEditWorkout(w)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={styles.workoutActionEdit}>EDIT</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => handleDeleteWorkout(w)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={styles.workoutActionDelete}>DELETE</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           ))
         ) : (
@@ -459,10 +515,10 @@ export function WorkoutScreen(): React.ReactElement {
       </ScrollView>
 
       {/* Manual Workout Modal */}
-      <Modal visible={isModalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setModalVisible(false)}>
+      <Modal visible={isModalVisible} transparent animationType="slide" onRequestClose={closeCustomModal}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={closeCustomModal}>
           <TouchableOpacity activeOpacity={1} style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Add Custom Workout</Text>
+            <Text style={styles.modalTitle}>{editingWorkout ? 'Edit Workout' : 'Add Custom Workout'}</Text>
             
             <Text style={styles.modalLabel}>Activity Name</Text>
             <TextInput
@@ -499,7 +555,7 @@ export function WorkoutScreen(): React.ReactElement {
             </View>
 
             <TouchableOpacity style={styles.modalBtn} onPress={handleSaveCustomWorkout}>
-              <Text style={styles.modalBtnText}>{saving ? 'SAVING...' : 'SAVE WORKOUT'}</Text>
+              <Text style={styles.modalBtnText}>{saving ? 'SAVING...' : editingWorkout ? 'UPDATE WORKOUT' : 'SAVE WORKOUT'}</Text>
             </TouchableOpacity>
           </TouchableOpacity>
         </TouchableOpacity>
@@ -540,6 +596,9 @@ const styles = StyleSheet.create({
   workoutName: { color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 14 },
   workoutMeta: { color: COLORS.accent, fontFamily: FONT.regular, fontSize: 12, marginTop: 2 },
   workoutNotes: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 11, marginTop: 2 },
+  workoutActions: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, marginLeft: SPACING.sm },
+  workoutActionEdit: { color: COLORS.accent, fontFamily: FONT.bold, fontSize: 12 },
+  workoutActionDelete: { color: '#FF5A5F', fontFamily: FONT.bold, fontSize: 12 },
   footer: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: COLORS.surface, padding: SPACING.md, borderTopWidth: 1, borderTopColor: COLORS.divider },
   footerText: { textAlign: 'center', color: COLORS.textPrimary, fontFamily: FONT.bold },
   

@@ -433,6 +433,22 @@ export async function getAllWorkouts(): Promise<WorkoutLog[]> {
   return rows.map(toWorkout);
 }
 
+export async function updateWorkout(workout: WorkoutLog): Promise<void> {
+  if (!workout.id) return;
+  const db = await getDb();
+  await db.runAsync(
+    `UPDATE workout_logs SET
+       date = ?, exercise_type = ?, duration_minutes = ?,
+       calories_burned = ?, notes = ?, sets_json = ?
+     WHERE id = ?`,
+    [
+      workout.date, workout.exerciseType, workout.durationMinutes,
+      workout.caloriesBurned, workout.notes, JSON.stringify(workout.sets ?? []),
+      workout.id,
+    ],
+  );
+}
+
 export async function deleteWorkout(id: number): Promise<void> {
   const db = await getDb();
   await db.runAsync('DELETE FROM workout_logs WHERE id = ?', [id]);

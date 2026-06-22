@@ -55,6 +55,7 @@ export interface DailyLogState {
   // UPDATED: Now accepts an optional date parameter
   addWorkoutCalories: (calories: number, date?: string) => Promise<void>;
   addWorkout: (workout: WorkoutLog) => Promise<void>;
+  updateWorkout: (workout: WorkoutLog) => Promise<void>;
   deleteWorkout: (workout: WorkoutLog) => Promise<void>;
   deleteMealEntry: (entry: MealEntry) => Promise<void>;
   syncToSheets: () => Promise<SyncResult | null>;
@@ -146,7 +147,25 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
     if (!workout.id) return;
     await db.deleteWorkout(workout.id);
     await get().addWorkoutCalories(-workout.caloriesBurned, workout.date);
-    
+
+    if (workout.date === todayStr()) {
+      const workouts = await db.getWorkoutsForDate(todayStr());
+      set({ todayWorkouts: workouts });
+    }
+  },
+
+  // Edits an existing workout and reconciles the daily calorie total by the delta
+  updateWorkout: async (workout) => {
+    if (!workout.id) return;
+    const existing = (get().todayWorkouts ?? []).find(w => w.id === workout.id)
+      ?? (await db.getWorkoutsForDate(workout.date)).find(w => w.id === workout.id);
+    const prevCalories = existing?.caloriesBurned ?? 0;
+    await db.updateWorkout(workout);
+    const delta = workout.caloriesBurned - prevCalories;
+    if (delta !== 0) {
+      await get().addWorkoutCalories(delta, workout.date);
+    }
+
     if (workout.date === todayStr()) {
       const workouts = await db.getWorkoutsForDate(todayStr());
       set({ todayWorkouts: workouts });
