@@ -13,7 +13,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'DayDetail'>;
 
 export function DayDetailScreen({ route }: Props): React.ReactElement {
   const { date } = route.params;
-  const { addWorkout } = useDailyLogStore();
+  const { addWorkout, updateMealEntry, deleteMealEntry } = useDailyLogStore();
   
   const [log, setLog] = useState<DailyLog | null>(null);
   const [entries, setEntries] = useState<MealEntry[]>([]);
@@ -25,6 +25,11 @@ export function DayDetailScreen({ route }: Props): React.ReactElement {
   const [newWorkoutName, setNewWorkoutName] = useState('');
   const [newWorkoutDuration, setNewWorkoutDuration] = useState('');
   const [newWorkoutCals, setNewWorkoutCals] = useState('');
+
+  // Per-meal-entry edit modal state
+  const [editEntry, setEditEntry] = useState<MealEntry | null>(null);
+  const [editEntryDesc, setEditEntryDesc] = useState('');
+  const [editEntryCal, setEditEntryCal] = useState('');
 
   const fetchDayData = async () => {
     const [dayLog, dayEntries, dayWorkouts] = await Promise.all([
@@ -85,6 +90,48 @@ export function DayDetailScreen({ route }: Props): React.ReactElement {
     }
   };
 
+  function openEntryEdit(entry: MealEntry) {
+    setEditEntry(entry);
+    setEditEntryDesc(entry.foodDescription);
+    setEditEntryCal(String(entry.calories ?? ''));
+  }
+
+  async function confirmEntryEdit() {
+    if (!editEntry) return;
+    const desc = editEntryDesc.trim();
+    const cal = parseInt(editEntryCal, 10);
+    if (!desc) return Alert.alert('Missing name', 'Enter a food description.');
+    if (isNaN(cal) || cal < 0) return Alert.alert('Invalid', 'Enter calories ≥ 0.');
+    try {
+      await updateMealEntry({ ...editEntry, foodDescription: desc, calories: cal });
+      await fetchDayData();
+    } catch (e) {
+      Alert.alert('Error', 'Failed to update entry.');
+    } finally {
+      setEditEntry(null);
+      setEditEntryDesc('');
+      setEditEntryCal('');
+    }
+  }
+
+  function handleDeleteEntry(entry: MealEntry) {
+    Alert.alert('Delete entry?', entry.foodDescription, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteMealEntry(entry);
+            await fetchDayData();
+          } catch (e) {
+            Alert.alert('Error', 'Failed to delete entry.');
+          }
+        },
+      },
+    ]);
+  }
+
   if (isLoading) return <Loader />;
 
   const displayLog: DailyLog = log ?? {
@@ -131,6 +178,12 @@ export function DayDetailScreen({ route }: Props): React.ReactElement {
                       </Text>
                     </View>
                     <Text style={styles.entryKcal}>{e.calories} kcal</Text>
+                    <TouchableOpacity onPress={() => openEntryEdit(e)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Text style={styles.entryEdit}>✎</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => handleDeleteEntry(e)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Text style={styles.entryDelete}>✕</Text>
+                    </TouchableOpacity>
                   </View>
                 ))
               ) : (
@@ -233,6 +286,38 @@ export function DayDetailScreen({ route }: Props): React.ReactElement {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      {/* Edit Meal Entry Modal */}
+      <Modal visible={editEntry !== null} transparent animationType="slide" onRequestClose={() => setEditEntry(null)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setEditEntry(null)}>
+          <TouchableOpacity activeOpacity={1} style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Edit Entry</Text>
+
+            <Text style={styles.modalLabel}>Description</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={editEntryDesc}
+              onChangeText={setEditEntryDesc}
+              placeholder="e.g. Grilled chicken salad"
+              placeholderTextColor={COLORS.textSecondary}
+            />
+
+            <Text style={styles.modalLabel}>Calories (kcal)</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={editEntryCal}
+              onChangeText={setEditEntryCal}
+              keyboardType="number-pad"
+              placeholder="0"
+              placeholderTextColor={COLORS.textSecondary}
+            />
+
+            <TouchableOpacity style={styles.modalBtn} onPress={confirmEntryEdit}>
+              <Text style={styles.modalBtnText}>SAVE</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -296,6 +381,7 @@ const styles = StyleSheet.create({
   entryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     paddingVertical: 3,
   },
   entryDesc: {
@@ -309,6 +395,16 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     fontFamily: FONT.regular,
     fontSize: 13,
+  },
+  entryEdit: {
+    color: COLORS.accent,
+    fontSize: 14,
+    paddingLeft: SPACING.md,
+  },
+  entryDelete: {
+    color: '#ff6b6b',
+    fontSize: 14,
+    paddingLeft: SPACING.sm,
   },
   entryMacro: {
     color: COLORS.textSecondary,

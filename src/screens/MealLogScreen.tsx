@@ -50,12 +50,18 @@ export function MealLogScreen(): React.ReactElement {
     loadToday, 
     loadAllLogs, 
     setMealCalories,
-    deleteMealEntry: storeDeleteMealEntry
+    deleteMealEntry: storeDeleteMealEntry,
+    updateMealEntry: storeUpdateMealEntry
   } = useDailyLogStore();
   
   const [todayEntries, setTodayEntries] = useState<MealEntry[]>([]);
   const [editCat, setEditCat] = useState<string | null>(null);
   const [editVal, setEditVal] = useState('');
+
+  // Per-dish edit state
+  const [editEntry, setEditEntry] = useState<MealEntry | null>(null);
+  const [editEntryDesc, setEditEntryDesc] = useState('');
+  const [editEntryCal, setEditEntryCal] = useState('');
   
   const todayStr = dayjs().format('YYYY-MM-DD');
   const tdee = profile ? Math.round(calculateTdee(profile)) : 2000;
@@ -182,6 +188,27 @@ export function MealLogScreen(): React.ReactElement {
     ]);
   }
 
+  function openEntryEdit(entry: MealEntry) {
+    setEditEntry(entry);
+    setEditEntryDesc(entry.foodDescription);
+    setEditEntryCal(String(entry.calories ?? ''));
+  }
+
+  async function confirmEntryEdit() {
+    if (!editEntry) return;
+    const desc = editEntryDesc.trim();
+    const cal = parseInt(editEntryCal, 10);
+    if (!desc) return Alert.alert('Missing name', 'Enter a food description.');
+    if (isNaN(cal) || cal < 0) return Alert.alert('Invalid', 'Enter calories ≥ 0.');
+
+    await storeUpdateMealEntry({ ...editEntry, foodDescription: desc, calories: cal });
+    const updated = await db.getMealEntriesForDate(todayStr);
+    setTodayEntries(updated);
+    setEditEntry(null);
+    setEditEntryDesc('');
+    setEditEntryCal('');
+  }
+
   // FIXED: Return an empty View instead of null to satisfy React.ReactElement
   if (!profile || !todayLog) return <View style={styles.root} />;
 
@@ -210,7 +237,10 @@ export function MealLogScreen(): React.ReactElement {
                       <Text style={styles.dishMacro}>{`P ${Math.round(e.protein ?? 0)}g · F ${Math.round(e.fat ?? 0)}g · C ${Math.round(e.carbs ?? 0)}g · Fib ${Math.round(e.fiber ?? 0)}g`}</Text>
                     </View>
                     <Text style={styles.dishKcal}>{e.calories} kcal</Text>
-                    <TouchableOpacity onPress={() => handleDeleteEntry(e)}>
+                    <TouchableOpacity onPress={() => openEntryEdit(e)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Text style={styles.dishEdit}>✎</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => handleDeleteEntry(e)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                       <Text style={styles.dishDelete}>✕</Text>
                     </TouchableOpacity>
                   </View>
@@ -309,6 +339,35 @@ export function MealLogScreen(): React.ReactElement {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      {/* Per-dish edit modal */}
+      <Modal visible={editEntry !== null} transparent animationType="slide" onRequestClose={() => setEditEntry(null)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setEditEntry(null)}>
+          <TouchableOpacity activeOpacity={1} style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Edit Entry</Text>
+            <Text style={styles.entryEditLabel}>Description</Text>
+            <TextInput
+              style={styles.entryEditInput}
+              value={editEntryDesc}
+              onChangeText={setEditEntryDesc}
+              placeholder="e.g. Grilled chicken salad"
+              placeholderTextColor={COLORS.textSecondary}
+            />
+            <Text style={styles.entryEditLabel}>Calories (kcal)</Text>
+            <TextInput
+              style={styles.entryEditInput}
+              value={editEntryCal}
+              onChangeText={setEditEntryCal}
+              keyboardType="number-pad"
+              placeholder="0"
+              placeholderTextColor={COLORS.textSecondary}
+            />
+            <TouchableOpacity style={[styles.modalBtn, { marginTop: SPACING.md }]} onPress={confirmEntryEdit}>
+              <Text style={styles.modalBtnText}>SAVE</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </ScrollView>
   );
 }
@@ -335,6 +394,9 @@ const styles = StyleSheet.create({
   dishKcal: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 13 },
   dishMacro: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 11, marginTop: 2 },
   dishDelete: { color: '#ff6b6b', fontSize: 14, paddingLeft: SPACING.sm },
+  dishEdit: { color: COLORS.accent, fontSize: 14, paddingLeft: SPACING.md },
+  entryEditLabel: { color: COLORS.textSecondary, fontFamily: FONT.bold, fontSize: 12, marginBottom: SPACING.xs },
+  entryEditInput: { backgroundColor: COLORS.surfaceAlt, color: COLORS.textPrimary, borderRadius: RADIUS.md, paddingHorizontal: SPACING.md, paddingVertical: 12, fontSize: 15, fontFamily: FONT.regular, marginBottom: SPACING.md },
   historyCard: { backgroundColor: COLORS.surface, borderRadius: RADIUS.lg, paddingHorizontal: SPACING.md },
   historyRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: SPACING.sm },
   historyDate: { color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 13 },

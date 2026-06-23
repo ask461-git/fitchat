@@ -58,6 +58,7 @@ export interface DailyLogState {
   updateWorkout: (workout: WorkoutLog) => Promise<void>;
   deleteWorkout: (workout: WorkoutLog) => Promise<void>;
   deleteMealEntry: (entry: MealEntry) => Promise<void>;
+  updateMealEntry: (entry: MealEntry) => Promise<void>;
   syncToSheets: () => Promise<SyncResult | null>;
   clearDay: (date: string) => Promise<void>;
 }
@@ -174,13 +175,35 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
 
   deleteMealEntry: async (entry) => {
     if (!entry.id) return;
+    const date = entry.date || todayStr();
     await db.deleteMealEntry(entry.id);
-    const remaining = await db.getMealEntriesForDate(todayStr());
+    const remaining = await db.getMealEntriesForDate(date);
     const categoryTotal = remaining
       .filter(e => e.category === entry.category)
       .reduce((sum, e) => sum + e.calories, 0);
-    await get().setMealCalories(entry.category, categoryTotal);
-    await get().recalcDailyMacroTotals(todayStr());
+    const log = await db.getOrCreateDailyLog(date, getTdeeFromStore());
+    const updated = applyMealCal(log, entry.category, categoryTotal, 'set');
+    await db.updateDailyLog(updated);
+    if (date === todayStr()) set({ todayLog: updated });
+    await get().recalcDailyMacroTotals(date);
+    scheduleSheetSync(() => get().syncToSheets());
+  },
+
+  // Edits an existing meal entry and reconciles that day's category + macro totals
+  updateMealEntry: async (entry) => {
+    if (!entry.id) return;
+    const date = entry.date || todayStr();
+    await db.updateMealEntry(entry);
+    const all = await db.getMealEntriesForDate(date);
+    const categoryTotal = all
+      .filter(e => e.category === entry.category)
+      .reduce((sum, e) => sum + e.calories, 0);
+    const log = await db.getOrCreateDailyLog(date, getTdeeFromStore());
+    const updated = applyMealCal(log, entry.category, categoryTotal, 'set');
+    await db.updateDailyLog(updated);
+    if (date === todayStr()) set({ todayLog: updated });
+    await get().recalcDailyMacroTotals(date);
+    scheduleSheetSync(() => get().syncToSheets());
   },
 
   syncToSheets: async () => {

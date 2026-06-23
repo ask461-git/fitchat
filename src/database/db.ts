@@ -495,6 +495,22 @@ export async function deleteMealEntry(id: number): Promise<void> {
   await db.runAsync('DELETE FROM meal_entries WHERE id = ?', [id]);
 }
 
+export async function updateMealEntry(entry: MealEntry): Promise<void> {
+  if (!entry.id) return;
+  const db = await getDb();
+  await db.runAsync(
+    `UPDATE meal_entries SET
+       date = ?, category = ?, food_description = ?, calories = ?,
+       protein_g = ?, fat_g = ?, carbs_g = ?, fiber_g = ?
+     WHERE id = ?`,
+    [
+      entry.date, entry.category, entry.foodDescription, entry.calories,
+      entry.protein ?? 0, entry.fat ?? 0, entry.carbs ?? 0, entry.fiber ?? 0,
+      entry.id,
+    ],
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Chat Messages
 // ---------------------------------------------------------------------------
