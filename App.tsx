@@ -62,6 +62,8 @@ const ebStyles = StyleSheet.create({
 export default function App() {
   const [fontsLoaded, fontError] = useFonts({ Montserrat_400Regular, Montserrat_700Bold });
   const [dbReady, setDbReady] = useState(false);
+  // Ensures the version/build Loader stays on screen for at least 2 seconds.
+  const [minTimeElapsed, setMinTimeElapsed] = useState(false);
 
   if (fontError) {
     console.log('🚨 FONT ERROR:', fontError);
@@ -91,6 +93,17 @@ export default function App() {
     init();
   }, [loadProfile, loadToday, loadAllLogs, loadTodayWorkouts, loadChat]);
 
+  // Hide the native splash as soon as fonts are ready so our custom <Loader />
+  // (which shows the version/build info) becomes visible while the DB loads,
+  // and keep it visible for a minimum of 2 seconds.
+  useEffect(() => {
+    if (fontsLoaded || fontError) {
+      SplashScreen.hideAsync().catch(() => {});
+      const timer = setTimeout(() => setMinTimeElapsed(true), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [fontsLoaded, fontError]);
+
   const onLayoutRootView = useCallback(async () => {
     if (fontsLoaded && dbReady) {
       await SplashScreen.hideAsync();
@@ -99,7 +112,7 @@ export default function App() {
 
   console.log("🕵️ State Check -> dbReady:", dbReady, "| fontsLoaded:", fontsLoaded);
 
-  if (!fontsLoaded || !dbReady) {
+  if (!fontsLoaded || !dbReady || !minTimeElapsed) {
     return <Loader />;
   }
 

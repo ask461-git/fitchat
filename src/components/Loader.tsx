@@ -1,7 +1,27 @@
 import React from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import Constants from 'expo-constants';
 import { COLORS, FONT } from '../theme/theme';
-import { APP_VERSION } from '../version';
+
+const VERSION = Constants.expoConfig?.version ?? '0.0.0';
+const BUILD = Constants.expoConfig?.android?.versionCode ?? Constants.expoConfig?.ios?.buildNumber;
+const BUILD_TIME_ISO = Constants.expoConfig?.extra?.buildTime as string | undefined;
+
+function formatBuildTime(iso?: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('en-GB', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+const BUILD_TIME_LABEL = formatBuildTime(BUILD_TIME_ISO);
 
 export function Loader(): React.ReactElement {
   return (
@@ -11,9 +31,11 @@ export function Loader(): React.ReactElement {
       </View>
       <View style={styles.versionWrap}>
         <Text style={styles.versionText}>
-          v{APP_VERSION.version} (build {APP_VERSION.build})
+          v{VERSION}{BUILD != null ? ` (build ${BUILD})` : ''}
         </Text>
-        <Text style={styles.dateText}>Generated {APP_VERSION.generatedAtLabel}</Text>
+        {!!BUILD_TIME_LABEL && (
+          <Text style={styles.dateText}>Generated {BUILD_TIME_LABEL}</Text>
+        )}
       </View>
     </View>
   );

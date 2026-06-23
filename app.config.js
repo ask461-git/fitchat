@@ -22,6 +22,9 @@ export default {
   },
   plugins: ['expo-sqlite'],
   extra: {
+    // Stamped at config-evaluation time (i.e. at build time). Displayed on the
+    // splash/loading screen via expo-constants.
+    buildTime: new Date().toISOString(),
     eas: {
       projectId: '9aeae0cb-40de-47e1-86c7-17fd83860ba4',
     },
