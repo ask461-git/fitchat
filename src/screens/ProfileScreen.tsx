@@ -20,6 +20,7 @@ import { Loader } from '../components/Loader';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme/theme';
 import * as db from '../database/db';
 import { getLastSyncInfo, type LastSyncInfo } from '../services/sheetsSync';
+import { APP_VERSION_LABEL, APP_BUILD_TIME_LABEL } from '../utils/appVersion';
 
 export function ProfileScreen(): React.ReactElement {
   const { profile, isLoading, saveProfile } = useProfileStore();
@@ -259,6 +260,16 @@ export function ProfileScreen(): React.ReactElement {
           </Text>
         </View>
       )}
+
+      <View style={styles.sectionWrap}>
+        <Text style={styles.sectionLabel}>APP VERSION</Text>
+        <View style={styles.infoCard}>
+          <InfoRow label="Version" value={APP_VERSION_LABEL} last={!APP_BUILD_TIME_LABEL} />
+          {!!APP_BUILD_TIME_LABEL && (
+            <InfoRow label="Generated" value={APP_BUILD_TIME_LABEL} last />
+          )}
+        </View>
+      </View>
     </ScrollView>
   );
 }
