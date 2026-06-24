@@ -18,7 +18,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { WorkoutLog } from '../models';
 import { WORKOUT_TEMPLATES } from '../data/workoutTemplates';
 import type { ExerciseTemplate } from '../data/workoutTemplates';
-import { estimateCardioForUser, confirmAndLogCardio } from '../services/cardioFlow';
+import { estimateCardioForUser, estimateCardioWithAI, confirmAndLogCardio } from '../services/cardioFlow';
+import type { CardioConfidence } from '../services/cardioMet';
 import { estimateExerciseCalories } from '../services/gymCalc';
 import type { ExerciseInput } from '../utils/calorieCalculator';
 import { calculateTotalSessionCalories } from '../utils/calorieCalculator';
@@ -77,8 +78,9 @@ export function WorkoutScreen(): React.ReactElement {
   const [customCals, setCustomCals] = useState('');
 
   // Cardio draft
-  const [cardioDraft, setCardioDraft] = useState<{ activity: string; intensity?: string; duration?: string; distance?: string; estimate?: number; note?: string }>({ activity: '', intensity: '', duration: '', distance: '' });
+  const [cardioDraft, setCardioDraft] = useState<{ activity: string; intensity?: string; duration?: string; distance?: string; estimate?: number; note?: string; confidence?: CardioConfidence; source?: 'local' | 'ai'; recommendAiCheck?: boolean }>({ activity: '', intensity: '', duration: '', distance: '' });
   const [isEstimating, setIsEstimating] = useState(false);
+  const [isAiChecking, setIsAiChecking] = useState(false);
 
   // Lifting drafts
   const [liftingDraft, setLiftingDraft] = useState<Record<string, { setsArray: { weight: string; reps: string }[]; durationActive: string; durationRest: string }>>({});
@@ -106,19 +108,36 @@ export function WorkoutScreen(): React.ReactElement {
     setSaving(false);
   }
 
-  async function handleEstimateCardio() {
+  function handleEstimateCardio() {
     if (!cardioDraft.activity || !cardioDraft.duration) return Alert.alert('Missing fields', 'Provide activity and duration.');
     if (!profile) return Alert.alert('Error', 'Profile not loaded.');
     setIsEstimating(true);
     try {
       const dur = Number(cardioDraft.duration || 0);
       const intensityVal = cardioDraft.intensity ? Number(cardioDraft.intensity) : undefined;
-      const res = await estimateCardioForUser({ activity: cardioDraft.activity, intensity: intensityVal, durationMinutes: dur, distance: cardioDraft.distance }, profile.currentWeightKg);
-      setCardioDraft(d => ({ ...d, estimate: Math.round(res.calories), note: res.note || res.calories?.toString?.() }));
+      // Local-first: pure MET/ACSM math, no API call.
+      const res = estimateCardioForUser({ activity: cardioDraft.activity, intensity: intensityVal, durationMinutes: dur, distance: cardioDraft.distance }, profile.currentWeightKg);
+      setCardioDraft(d => ({ ...d, estimate: Math.round(res.calories), note: res.note, confidence: res.confidence, source: res.source, recommendAiCheck: res.recommendAiCheck }));
     } catch (e) {
       Alert.alert('Estimate failed', String(e));
     } finally {
       setIsEstimating(false);
+    }
+  }
+
+  // Opt-in escalation: ask Gemini for a second opinion (the only path that costs tokens).
+  async function handleAiCheckCardio() {
+    if (!profile) return Alert.alert('Error', 'Profile not loaded.');
+    setIsAiChecking(true);
+    try {
+      const dur = Number(cardioDraft.duration || 0);
+      const intensityVal = cardioDraft.intensity ? Number(cardioDraft.intensity) : undefined;
+      const res = await estimateCardioWithAI({ activity: cardioDraft.activity, intensity: intensityVal, durationMinutes: dur, distance: cardioDraft.distance }, profile.currentWeightKg);
+      setCardioDraft(d => ({ ...d, estimate: Math.round(res.calories), note: res.note, confidence: res.confidence, source: res.source, recommendAiCheck: false }));
+    } catch (e) {
+      Alert.alert('AI check failed', String(e));
+    } finally {
+      setIsAiChecking(false);
     }
   }
 
@@ -330,7 +349,7 @@ export function WorkoutScreen(): React.ReactElement {
                     <Text style={styles.btnText}>Estimating...</Text>
                   </View>
                 ) : (
-                  <Text style={styles.btnText}>Estimate via Gemini</Text>
+                  <Text style={styles.btnText}>Estimate (offline)</Text>
                 )}
               </TouchableOpacity>
               <TouchableOpacity
@@ -345,10 +364,29 @@ export function WorkoutScreen(): React.ReactElement {
             {cardioDraft.estimate != null && (
               <View style={styles.draftCard}>
                 <Text style={styles.draftText}>Draft: {cardioDraft.activity} · {cardioDraft.duration} min · ≈ {cardioDraft.estimate} kcal</Text>
+                <Text style={[styles.draftText, { marginTop: SPACING.xs }]}>
+                  {cardioDraft.source === 'ai' ? '🤖 AI estimate' : `📊 Local estimate · ${cardioDraft.confidence ?? 'medium'} confidence`}
+                </Text>
                 {cardioDraft.note ? <Text style={[styles.draftText, { marginTop: SPACING.xs }]}>{cardioDraft.note}</Text> : null}
+                {cardioDraft.source !== 'ai' && (
+                  <TouchableOpacity
+                    style={[styles.btnOutline, { marginTop: SPACING.sm }, isAiChecking && styles.btnDisabled]}
+                    onPress={handleAiCheckCardio}
+                    disabled={isAiChecking}
+                  >
+                    {isAiChecking ? (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                        <ActivityIndicator size="small" color={COLORS.accent} style={{ marginRight: 8 }} />
+                        <Text style={styles.btnOutlineText}>Checking…</Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.btnOutlineText}>{cardioDraft.recommendAiCheck ? 'Double-check with AI (recommended)' : 'Double-check with AI'}</Text>
+                    )}
+                  </TouchableOpacity>
+                )}
                 <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.sm }}>
                   <TouchableOpacity style={[styles.btn, { flex: 1 }]} onPress={handleConfirmCardio} disabled={saving}>
-                    <Text style={styles.btnText}>{saving ? 'SAVING…' : 'Confirm & Log'}</Text>
+                    <Text style={styles.btnText}>{saving ? 'SAVING…' : 'Log this'}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={[styles.btnOutline, { flex: 1 }, isEstimating && styles.btnDisabled]} onPress={() => setCardioDraft({ activity: '', intensity: '', duration: '', distance: '' })} disabled={isEstimating}>
                     <Text style={styles.btnOutlineText}>Discard</Text>

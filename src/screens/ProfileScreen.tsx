@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import dayjs from 'dayjs';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -37,9 +38,15 @@ export function ProfileScreen(): React.ReactElement {
     totalCandidatesTokens: number;
     totalCostUsd: number;
   } | null>(null);
+  const [todayUsage, setTodayUsage] = useState<{
+    promptTokens: number;
+    candidatesTokens: number;
+    costUsd: number;
+  } | null>(null);
 
   useEffect(() => {
     db.getApiUsageTotals().then(setApiUsage);
+    db.getApiUsageForDate(dayjs().format('YYYY-MM-DD')).then(setTodayUsage);
     db.getSetting('sheets_url').then(url => {
       setSheetsUrl(url);
       setSheetsUrlInput(url);
@@ -237,6 +244,12 @@ export function ProfileScreen(): React.ReactElement {
         <View style={styles.sectionWrap}>
           <Text style={styles.sectionLabel}>GEMINI API USAGE (EST.)</Text>
           <View style={styles.infoCard}>
+            {todayUsage && (
+              <InfoRow
+                label="Today"
+                value={`$${todayUsage.costUsd.toFixed(4)} · ${(todayUsage.promptTokens + todayUsage.candidatesTokens).toLocaleString()} tok`}
+              />
+            )}
             <InfoRow
               label="Input tokens"
               value={apiUsage.totalPromptTokens.toLocaleString()}
@@ -252,7 +265,7 @@ export function ProfileScreen(): React.ReactElement {
             />
           </View>
           <Text style={styles.usageNote}>
-            Based on Gemini 2.5 Flash list pricing ($0.075 / $0.30 per 1M tokens).
+            Based on Gemini 2.5 Flash list pricing ($0.30 / $2.50 per 1M tokens).
             Free-tier usage is not deducted.
           </Text>
           <Text style={styles.usageNoteSmall}>

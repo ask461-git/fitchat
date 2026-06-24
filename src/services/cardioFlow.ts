@@ -1,6 +1,7 @@
 import dayjs from 'dayjs';
 import type { WorkoutLog } from '../models';
 import { estimateCardio } from './gemini';
+import { estimateCardioLocal, type CardioConfidence } from './cardioMet';
 import { useDailyLogStore } from '../store/dailyLogStore';
 
 export interface CardioInput {
@@ -13,9 +14,31 @@ export interface CardioInput {
 export interface CardioEstimateResult {
   calories: number;
   note: string;
+  source: 'local' | 'ai';
+  confidence: CardioConfidence;
+  recommendAiCheck: boolean;
 }
 
-export async function estimateCardioForUser(input: CardioInput, weightKg = 89): Promise<CardioEstimateResult> {
+// Default path: estimate locally with MET tables / ACSM equations. No network.
+export function estimateCardioForUser(input: CardioInput, weightKg = 89): CardioEstimateResult {
+  const local = estimateCardioLocal({
+    activity: input.activity,
+    intensity: input.intensity,
+    durationMinutes: input.durationMinutes,
+    distance: input.distance,
+    weightKg,
+  });
+  return {
+    calories: local.calories,
+    note: local.note,
+    source: 'local',
+    confidence: local.confidence,
+    recommendAiCheck: local.recommendAiCheck,
+  };
+}
+
+// Opt-in escalation: ask Gemini for a second opinion when the user wants it.
+export async function estimateCardioWithAI(input: CardioInput, weightKg = 89): Promise<CardioEstimateResult> {
   const res = await estimateCardio({
     activity: input.activity,
     intensity: input.intensity,
@@ -23,15 +46,22 @@ export async function estimateCardioForUser(input: CardioInput, weightKg = 89): 
     distance: input.distance,
     weightKg,
   });
-  // Extra safety: if Gemini returned an implausible value, compute a simple fallback and log the issue.
+  // Extra safety: if Gemini returned an implausible value, fall back to the local estimate.
   if (!res || !res.calories || res.calories <= 1) {
-    const fallback = Math.round(input.durationMinutes * 8);
-    console.error('Cardio estimate parse issue — using fallback. input:', input, 'geminiText:', res?.text, 'fallback:', fallback);
-    return { calories: fallback, note: `fallback:${fallback}` };
+    const local = estimateCardioForUser(input, weightKg);
+    console.error('AI cardio estimate parse issue — using local fallback. input:', input, 'geminiText:', res?.text);
+    return { ...local, note: `${local.note} (AI unavailable)` };
   }
 
-  return { calories: res.calories, note: res.text };
+  return {
+    calories: res.calories,
+    note: res.text || 'AI estimate',
+    source: 'ai',
+    confidence: 'high',
+    recommendAiCheck: false,
+  };
 }
+
 
 // Confirmed by user: persist workout to DB and roll into today's log.
 export async function confirmAndLogCardio(input: CardioInput, calories: number, note = ''): Promise<WorkoutLog> {

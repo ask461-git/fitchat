@@ -582,6 +582,28 @@ export async function getApiUsageTotals(): Promise<{
   };
 }
 
+export async function getApiUsageForDate(date: string): Promise<{
+  promptTokens: number;
+  candidatesTokens: number;
+  costUsd: number;
+}> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ pt: number; ct: number; cost: number }>(
+    `SELECT
+       COALESCE(SUM(prompt_tokens), 0)     AS pt,
+       COALESCE(SUM(candidates_tokens), 0) AS ct,
+       COALESCE(SUM(cost_usd), 0.0)        AS cost
+     FROM api_usage
+     WHERE date = ?`,
+    [date],
+  );
+  return {
+    promptTokens: row?.pt ?? 0,
+    candidatesTokens: row?.ct ?? 0,
+    costUsd: row?.cost ?? 0,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // App Settings (key/value store)
 // ---------------------------------------------------------------------------

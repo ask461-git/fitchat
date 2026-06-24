@@ -9,8 +9,9 @@ import { useDailyLogStore } from './dailyLogStore';
 
 // Gemini pricing (USD per token). Can be overridden via env:
 // EXPO_PUBLIC_GEMINI_PRICE_INPUT_USD and EXPO_PUBLIC_GEMINI_PRICE_OUTPUT_USD
-const PRICE_INPUT_PER_TOKEN = parseFloat(process.env.EXPO_PUBLIC_GEMINI_PRICE_INPUT_USD ?? '') || 0.075 / 1_000_000;
-const PRICE_OUTPUT_PER_TOKEN = parseFloat(process.env.EXPO_PUBLIC_GEMINI_PRICE_OUTPUT_USD ?? '') || 0.30 / 1_000_000;
+// Defaults reflect gemini-2.5-flash list pricing (~$0.30 / 1M input, ~$2.50 / 1M output).
+const PRICE_INPUT_PER_TOKEN = parseFloat(process.env.EXPO_PUBLIC_GEMINI_PRICE_INPUT_USD ?? '') || 0.30 / 1_000_000;
+const PRICE_OUTPUT_PER_TOKEN = parseFloat(process.env.EXPO_PUBLIC_GEMINI_PRICE_OUTPUT_USD ?? '') || 2.50 / 1_000_000;
 
 export interface DraftMeal {
   id: string; // local key for list rendering
