@@ -534,14 +534,18 @@ export function WorkoutScreen(): React.ReactElement {
                 const isLast = idx === recentLogs.length - 1;
                 return (
                   <View key={log.date}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: SPACING.sm }}>
+                    <TouchableOpacity
+                      style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: SPACING.sm }}
+                      onPress={() => navigation.navigate('DayDetail', { date: log.date })}
+                      activeOpacity={0.7}
+                    >
                       <Text style={{ color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 13 }}>
                         {dayjs(log.date).format('ddd, MMM D')}
                       </Text>
                       <Text style={{ color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 12 }}>
                         {log.workoutCalBurned > 0 ? `–${log.workoutCalBurned} kcal burned` : 'No workouts'}
                       </Text>
-                    </View>
+                    </TouchableOpacity>
                     {!isLast && <View style={{ height: 1, backgroundColor: COLORS.divider }} />}
                   </View>
                 );

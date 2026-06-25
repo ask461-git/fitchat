@@ -468,6 +468,19 @@ export async function resetDailyLog(date: string): Promise<void> {
   await db.runAsync('DELETE FROM meal_entries WHERE date = ?', [date]);
 }
 
+// Clear just one meal category for a date (removes its entries; caller resets the cal column + macros).
+export async function deleteMealEntriesForCategory(date: string, category: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync('DELETE FROM meal_entries WHERE date = ? AND category = ?', [date, category]);
+}
+
+// Clear only workouts for a date and zero the burned-calorie aggregate.
+export async function clearWorkoutsForDate(date: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync('UPDATE daily_logs SET workout_cal_burned = 0 WHERE date = ?', [date]);
+  await db.runAsync('DELETE FROM workout_logs WHERE date = ?', [date]);
+}
+
 // ---------------------------------------------------------------------------
 // Meal Entries
 // ---------------------------------------------------------------------------

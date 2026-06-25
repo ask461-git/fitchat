@@ -12,9 +12,14 @@ import { COLORS, FONT, RADIUS, SPACING } from '../theme/theme';
 type Props = NativeStackScreenProps<RootStackParamList, 'DayDetail'>;
 
 export function DayDetailScreen({ route }: Props): React.ReactElement {
-  const { date } = route.params;
-  const { addWorkout, updateMealEntry, deleteMealEntry } = useDailyLogStore();
-  
+  // The day being viewed/edited. Initialized from the route param but can be
+  // stepped backwards/forwards (never into the future) so any past day is reachable.
+  const [date, setDate] = useState<string>(route.params.date);
+  const { addWorkout, addMealEntry, updateMealEntry, deleteMealEntry } = useDailyLogStore();
+
+  const todayStr = dayjs().format('YYYY-MM-DD');
+  const isToday = date === todayStr;
+
   const [log, setLog] = useState<DailyLog | null>(null);
   const [entries, setEntries] = useState<MealEntry[]>([]);
   const [workouts, setWorkouts] = useState<WorkoutLog[]>([]);
@@ -25,6 +30,15 @@ export function DayDetailScreen({ route }: Props): React.ReactElement {
   const [newWorkoutName, setNewWorkoutName] = useState('');
   const [newWorkoutDuration, setNewWorkoutDuration] = useState('');
   const [newWorkoutCals, setNewWorkoutCals] = useState('');
+
+  // New meal modal state (add food to a specific category for this day)
+  const [mealModalCategory, setMealModalCategory] = useState<string | null>(null);
+  const [newMealDesc, setNewMealDesc] = useState('');
+  const [newMealCal, setNewMealCal] = useState('');
+  const [newMealProtein, setNewMealProtein] = useState('');
+  const [newMealFat, setNewMealFat] = useState('');
+  const [newMealCarbs, setNewMealCarbs] = useState('');
+  const [newMealFiber, setNewMealFiber] = useState('');
 
   // Per-meal-entry edit modal state
   const [editEntry, setEditEntry] = useState<MealEntry | null>(null);
@@ -43,6 +57,7 @@ export function DayDetailScreen({ route }: Props): React.ReactElement {
   };
 
   useEffect(() => {
+    setIsLoading(true);
     fetchDayData()
       .catch((error) => {
         console.error("🔥 ERROR FETCHING DATA:", error);
@@ -52,6 +67,61 @@ export function DayDetailScreen({ route }: Props): React.ReactElement {
         setIsLoading(false); 
       });
   }, [date]);
+
+  function goPrevDay() {
+    setDate(d => dayjs(d).subtract(1, 'day').format('YYYY-MM-DD'));
+  }
+
+  function goNextDay() {
+    setDate(d => {
+      const next = dayjs(d).add(1, 'day');
+      // Never step into the future.
+      return next.isAfter(dayjs(), 'day') ? d : next.format('YYYY-MM-DD');
+    });
+  }
+
+  function openMealModal(category: string) {
+    setMealModalCategory(category);
+    setNewMealDesc('');
+    setNewMealCal('');
+    setNewMealProtein('');
+    setNewMealFat('');
+    setNewMealCarbs('');
+    setNewMealFiber('');
+  }
+
+  async function handleSaveMeal() {
+    if (!mealModalCategory) return;
+    const desc = newMealDesc.trim();
+    const cal = parseInt(newMealCal, 10);
+    if (!desc) return Alert.alert('Missing name', 'Enter a food description.');
+    if (isNaN(cal) || cal < 0) return Alert.alert('Invalid', 'Enter calories ≥ 0.');
+
+    const num = (v: string) => {
+      const n = parseFloat(v);
+      return isNaN(n) || n < 0 ? 0 : n;
+    };
+
+    setIsLoading(true);
+    setMealModalCategory(null);
+    try {
+      await addMealEntry({
+        date,
+        category: mealModalCategory,
+        foodDescription: desc,
+        calories: cal,
+        protein: num(newMealProtein),
+        fat: num(newMealFat),
+        carbs: num(newMealCarbs),
+        fiber: num(newMealFiber),
+      } as MealEntry);
+      await fetchDayData();
+    } catch (e) {
+      Alert.alert('Error', 'Failed to save the meal.');
+    } finally {
+      setIsLoading(false);
+    }
+  }
 
   const handleSaveWorkout = async () => {
     if (!newWorkoutName || !newWorkoutDuration || !newWorkoutCals) {
@@ -153,7 +223,19 @@ export function DayDetailScreen({ route }: Props): React.ReactElement {
   return (
     <View style={{ flex: 1, backgroundColor: COLORS.background }}>
       <ScrollView style={styles.root} contentContainerStyle={styles.content}>
-        <Text style={styles.title}>{dayjs(date).format('dddd, MMMM D').toUpperCase()}</Text>
+        <View style={styles.dateNav}>
+          <TouchableOpacity onPress={goPrevDay} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <Text style={styles.dateNavArrow}>‹</Text>
+          </TouchableOpacity>
+          <Text style={[styles.title, { flex: 1, textAlign: 'center', marginBottom: 0 }]}>{dayjs(date).format('dddd, MMMM D').toUpperCase()}</Text>
+          <TouchableOpacity
+            onPress={goNextDay}
+            disabled={isToday}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Text style={[styles.dateNavArrow, isToday && styles.dateNavArrowDisabled]}>›</Text>
+          </TouchableOpacity>
+        </View>
 
         {MEAL_CATEGORIES.map(cat => {
           const cal = getMealCal(displayLog, cat);
@@ -162,9 +244,17 @@ export function DayDetailScreen({ route }: Props): React.ReactElement {
             <View key={cat} style={styles.categoryBlock}>
               <View style={styles.categoryHeader}>
                 <Text style={styles.categoryName}>{cat}</Text>
-                <Text style={[styles.categoryKcal, cal === 0 && styles.zeroKcal]}>
-                  {cal} kcal
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Text style={[styles.categoryKcal, cal === 0 && styles.zeroKcal]}>
+                    {cal} kcal
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => openMealModal(cat)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={styles.addFoodBtn}>+ ADD</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
               {catEntries.length > 0 ? (
                 catEntries.map(e => (
@@ -287,6 +377,88 @@ export function DayDetailScreen({ route }: Props): React.ReactElement {
         </TouchableOpacity>
       </Modal>
 
+      {/* Add Meal Modal */}
+      <Modal visible={mealModalCategory !== null} transparent animationType="slide" onRequestClose={() => setMealModalCategory(null)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setMealModalCategory(null)}>
+          <TouchableOpacity activeOpacity={1} style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Add to {mealModalCategory}</Text>
+
+            <Text style={styles.modalLabel}>Description</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={newMealDesc}
+              onChangeText={setNewMealDesc}
+              placeholder="e.g. Grilled chicken salad"
+              placeholderTextColor={COLORS.textSecondary}
+            />
+
+            <Text style={styles.modalLabel}>Calories (kcal)</Text>
+            <TextInput
+              style={styles.modalInput}
+              value={newMealCal}
+              onChangeText={setNewMealCal}
+              keyboardType="number-pad"
+              placeholder="0"
+              placeholderTextColor={COLORS.textSecondary}
+            />
+
+            <View style={{ flexDirection: 'row', gap: SPACING.md }}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalLabel}>Protein (g)</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={newMealProtein}
+                  onChangeText={setNewMealProtein}
+                  keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor={COLORS.textSecondary}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalLabel}>Fat (g)</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={newMealFat}
+                  onChangeText={setNewMealFat}
+                  keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor={COLORS.textSecondary}
+                />
+              </View>
+            </View>
+
+            <View style={{ flexDirection: 'row', gap: SPACING.md }}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalLabel}>Carbs (g)</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={newMealCarbs}
+                  onChangeText={setNewMealCarbs}
+                  keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor={COLORS.textSecondary}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalLabel}>Fiber (g)</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={newMealFiber}
+                  onChangeText={setNewMealFiber}
+                  keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor={COLORS.textSecondary}
+                />
+              </View>
+            </View>
+
+            <TouchableOpacity style={styles.modalBtn} onPress={handleSaveMeal}>
+              <Text style={styles.modalBtnText}>SAVE MEAL</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Edit Meal Entry Modal */}
       <Modal visible={editEntry !== null} transparent animationType="slide" onRequestClose={() => setEditEntry(null)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setEditEntry(null)}>
@@ -352,6 +524,27 @@ const styles = StyleSheet.create({
     fontSize: 11,
     letterSpacing: 0.8,
     marginBottom: SPACING.sm,
+  },
+  dateNav: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: SPACING.xs,
+  },
+  dateNavArrow: {
+    color: COLORS.accent,
+    fontFamily: FONT.bold,
+    fontSize: 28,
+    paddingHorizontal: SPACING.sm,
+  },
+  dateNavArrowDisabled: {
+    color: COLORS.divider,
+  },
+  addFoodBtn: {
+    color: COLORS.accent,
+    fontFamily: FONT.bold,
+    fontSize: 12,
+    marginLeft: SPACING.md,
   },
   categoryBlock: {
     backgroundColor: COLORS.surface,

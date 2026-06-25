@@ -31,6 +31,7 @@ export interface GeminiResponse {
   mealsLogged: LogMealResult[];
   workoutsLogged: LogWorkoutResult[];
   clearDate?: string; // YYYY-MM-DD if the user asked to clear a specific day
+  clearCategory?: string; // 'All' | meal category | 'Workout' — what to clear on clearDate
   usage: { promptTokens: number; candidatesTokens: number };
 }
 
@@ -52,13 +53,13 @@ RULES:
 - To delete/clear/reset a day, call clear_day with the YYYY-MM-DD date.
 - Keep replies tight and in character: 2-5 sentences unless more detail is requested.
 
-MEAL REPLY FORMAT (mandatory whenever you log meals): begin the text reply with a macro breakdown BEFORE any commentary, one line per item:
+MEAL REPLY FORMAT (mandatory whenever you log meals): begin the text reply with a macro breakdown BEFORE any commentary, one line per item. ALWAYS state the assumed portion size/weight (e.g. grams, ml, or count) that the macros are based on:
 
 📋 Macro breakdown:
-• [Food] — [X] kcal | P [X]g · F [X]g · C [X]g · Fib [X]g
+• [Food] ([assumed portion, e.g. 2 eggs ~100g]) — [X] kcal | P [X]g · F [X]g · C [X]g · Fib [X]g
 Total: [X] kcal
 
-Then add a 1-2 sentence coaching comment. Always show the breakdown first, even for a single item.`;
+Then add a 1-2 sentence coaching comment. Always show the breakdown (with assumed weights) first, even for a single item.`;
 
 // ---------------------------------------------------------------------------
 // Tool declarations
@@ -139,13 +140,18 @@ const TOOLS = [
       },
       {
         name: 'clear_day',
-        description: 'Reset all meal and workout calories for a specific date to zero. Use when the user asks to delete, clear, or reset entries for today or any past date.',
+        description: 'Delete logged entries for a date. Use when the user asks to delete, clear, or reset entries. Omit category (or use "All") to wipe the whole day; pass a specific category to clear only that meal slot or workouts.',
         parameters: {
           type: 'OBJECT',
           properties: {
             date: {
               type: 'STRING',
-              description: 'The date to clear in YYYY-MM-DD format. Use today\'s date if the user says "today".',
+              description: 'The date to clear in YYYY-MM-DD format. Resolve relative terms like "today" or "yesterday" using the current date provided in the user context.',
+            },
+            category: {
+              type: 'STRING',
+              description: 'Which part of the day to clear. Use "All" for the entire day.',
+              enum: ['All', 'Breakfast', 'Morning Snack', 'Lunch', 'Evening Snack', 'Dinner', 'Workout'],
             },
           },
           required: ['date'],
@@ -169,6 +175,7 @@ export async function sendMessage(params: {
 
   const tdee = Math.round(calculateTdee(profile));
   const contextBlock = `[USER CONTEXT — inject silently, do NOT quote back to user]
+Current date: ${todayLog.date}
 Name: ${profile.name} | Weight: ${profile.currentWeightKg} kg → target ${profile.targetWeightKg} kg
 TDEE: ${tdee} kcal/day
 Today — Breakfast: ${todayLog.breakfastCal} | Morning Snack: ${todayLog.morningSnackCal} | Lunch: ${todayLog.lunchCal} | Evening Snack: ${todayLog.eveningSnackCal} | Dinner: ${todayLog.dinnerCal}
@@ -188,6 +195,7 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
   const mealsLogged: LogMealResult[] = [];
   const workoutsLogged: LogWorkoutResult[] = [];
   let clearDate: string | undefined;
+  let clearCategory: string | undefined;
   let finalText = '';
   let totalPromptTokens = 0;
   let totalCandidatesTokens = 0;
@@ -282,7 +290,13 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
 
         case 'clear_day':
           clearDate = args['date'];
-          result = { success: true, message: `All entries for ${clearDate} have been cleared.` };
+          clearCategory = args['category'] || 'All';
+          result = {
+            success: true,
+            message: clearCategory === 'All'
+              ? `All entries for ${clearDate} have been cleared.`
+              : `${clearCategory} entries for ${clearDate} have been cleared.`,
+          };
           break;
 
         case 'get_daily_summary':
@@ -317,6 +331,7 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
     mealsLogged,
     workoutsLogged,
     clearDate,
+    clearCategory,
     usage: { promptTokens: totalPromptTokens, candidatesTokens: totalCandidatesTokens },
   };
 }

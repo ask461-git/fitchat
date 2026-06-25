@@ -59,8 +59,12 @@ export interface DailyLogState {
   deleteWorkout: (workout: WorkoutLog) => Promise<void>;
   deleteMealEntry: (entry: MealEntry) => Promise<void>;
   updateMealEntry: (entry: MealEntry) => Promise<void>;
+  // Adds a brand-new meal entry for any date (today or historical) and
+  // reconciles that day's category + macro totals.
+  addMealEntry: (entry: MealEntry) => Promise<void>;
   syncToSheets: () => Promise<SyncResult | null>;
   clearDay: (date: string) => Promise<void>;
+  clearCategory: (date: string, category: string) => Promise<void>;
 }
 
 export const useDailyLogStore = create<DailyLogState>((set, get) => ({
@@ -206,6 +210,23 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
     scheduleSheetSync(() => get().syncToSheets());
   },
 
+  // Inserts a new meal entry for any date (today or a past day) and reconciles
+  // that day's category calorie + macro totals so it shows up in history.
+  addMealEntry: async (entry) => {
+    const date = entry.date || todayStr();
+    await db.insertMealEntry({ ...entry, date });
+    const all = await db.getMealEntriesForDate(date);
+    const categoryTotal = all
+      .filter(e => e.category === entry.category)
+      .reduce((sum, e) => sum + e.calories, 0);
+    const log = await db.getOrCreateDailyLog(date, getTdeeFromStore());
+    const updated = applyMealCal(log, entry.category, categoryTotal, 'set');
+    await db.updateDailyLog(updated);
+    if (date === todayStr()) set({ todayLog: updated });
+    await get().recalcDailyMacroTotals(date);
+    scheduleSheetSync(() => get().syncToSheets());
+  },
+
   syncToSheets: async () => {
     const log = get().todayLog;
     if (!log) return null;
@@ -250,5 +271,24 @@ export const useDailyLogStore = create<DailyLogState>((set, get) => ({
       set({ todayWorkouts: workouts });
     }
     await get().loadAllLogs();
+  },
+
+  // Clear a single meal category (e.g. 'Breakfast') or 'Workout' for a date.
+  clearCategory: async (date, category) => {
+    if (category === 'Workout') {
+      await db.clearWorkoutsForDate(date);
+    } else {
+      await db.deleteMealEntriesForCategory(date, category);
+      const log = await db.getOrCreateDailyLog(date, getTdeeFromStore());
+      await db.updateDailyLog(applyMealCal(log, category, 0, 'set'));
+      await get().recalcDailyMacroTotals(date);
+    }
+    if (date === todayStr()) {
+      await get().loadToday();
+      const workouts = await db.getWorkoutsForDate(date);
+      set({ todayWorkouts: workouts });
+    }
+    await get().loadAllLogs();
+    scheduleSheetSync(() => get().syncToSheets());
   },
 }));

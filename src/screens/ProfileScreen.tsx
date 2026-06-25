@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import dayjs from 'dayjs';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -45,14 +46,21 @@ export function ProfileScreen(): React.ReactElement {
   } | null>(null);
 
   useEffect(() => {
-    db.getApiUsageTotals().then(setApiUsage);
-    db.getApiUsageForDate(dayjs().format('YYYY-MM-DD')).then(setTodayUsage);
     db.getSetting('sheets_url').then(url => {
       setSheetsUrl(url);
       setSheetsUrlInput(url);
     });
     getLastSyncInfo().then(setLastSync);
   }, []);
+
+  // Refresh API usage every time the screen gains focus so the cost figures
+  // reflect chat activity that happened on other tabs.
+  useFocusEffect(
+    useCallback(() => {
+      db.getApiUsageTotals().then(setApiUsage);
+      db.getApiUsageForDate(dayjs().format('YYYY-MM-DD')).then(setTodayUsage);
+    }, []),
+  );
 
   if (isLoading || !profile) return <Loader />;
 

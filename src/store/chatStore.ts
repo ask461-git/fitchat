@@ -167,7 +167,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       // Clear requests need no confirmation — just execute.
       if (response.clearDate) {
-        await useDailyLogStore.getState().clearDay(response.clearDate);
+        const cat = response.clearCategory ?? 'All';
+        if (cat === 'All') {
+          await useDailyLogStore.getState().clearDay(response.clearDate);
+        } else {
+          await useDailyLogStore.getState().clearCategory(response.clearDate, cat);
+        }
       }
 
       const modelMsg: ChatMessage = {
