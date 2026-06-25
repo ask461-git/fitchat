@@ -18,12 +18,14 @@ export interface LogMealResult {
   fat?: number;
   carbs?: number;
   fiber?: number;
+  date?: string; // YYYY-MM-DD target day (defaults to today)
 }
 
 export interface LogWorkoutResult {
   exerciseType: string;
   durationMinutes: number;
   estimatedCaloriesBurned: number;
+  date?: string; // YYYY-MM-DD target day (defaults to today)
 }
 
 export interface GeminiResponse {
@@ -40,6 +42,17 @@ export type ConversationTurn = {
   parts: { text: string }[];
 };
 
+// Resolve a tool-provided log date. Accepts a YYYY-MM-DD string; falls back to
+// `today` when missing/malformed, and clamps any future date back to today
+// (we never log into the future). YYYY-MM-DD sorts lexicographically, so plain
+// string comparison is sufficient for the bounds check.
+function resolveLogDate(raw: unknown, today: string): string {
+  if (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw > today ? today : raw;
+  }
+  return today;
+}
+
 // ---------------------------------------------------------------------------
 // System prompt
 // ---------------------------------------------------------------------------
@@ -49,6 +62,7 @@ const SYSTEM_PROMPT = `You are Kendrick Lamar, the Compton rapper, acting as a p
 RULES:
 - When the user describes food/drink, ALWAYS call log_meal. If multiple categories are mentioned, call log_meal SEPARATELY for each (Breakfast, Morning Snack, Lunch, Evening Snack, Dinner). Never combine categories.
 - When they describe a workout, ALWAYS call log_workout.
+- DATES: meals/workouts default to today. If the user names a different day (e.g. "yesterday", "last Monday", "June 12"), set the date argument to that day in YYYY-MM-DD format, resolving relative terms against the current date in the user context. Never log into the future.
 - If they ask how they're doing today, call get_daily_summary first.
 - To delete/clear/reset a day, call clear_day with the YYYY-MM-DD date.
 - Keep replies tight and in character: 2-5 sentences unless more detail is requested.
@@ -70,7 +84,7 @@ const TOOLS = [
     function_declarations: [
       {
         name: 'log_meal',
-        description: 'Log a meal or food item to a specific meal category for today.',
+        description: 'Log a meal or food item to a specific meal category. Defaults to today unless a date is given.',
         parameters: {
           type: 'OBJECT',
           properties: {
@@ -86,6 +100,10 @@ const TOOLS = [
             estimated_calories: {
               type: 'INTEGER',
               description: 'Estimated calorie count for this item.',
+            },
+            date: {
+              type: 'STRING',
+              description: 'Target day in YYYY-MM-DD format. Omit for today. Resolve relative terms like "yesterday" using the current date in the user context. Must not be in the future.',
             },
                   protein_g: {
                     type: 'NUMBER',
@@ -109,7 +127,7 @@ const TOOLS = [
       },
       {
         name: 'log_workout',
-        description: 'Log a workout session for today.',
+        description: 'Log a workout session. Defaults to today unless a date is given.',
         parameters: {
           type: 'OBJECT',
           properties: {
@@ -124,6 +142,10 @@ const TOOLS = [
             estimated_calories_burned: {
               type: 'INTEGER',
               description: 'Estimated calories burned.',
+            },
+            date: {
+              type: 'STRING',
+              description: 'Target day in YYYY-MM-DD format. Omit for today. Resolve relative terms like "yesterday" using the current date in the user context. Must not be in the future.',
             },
           },
           required: ['exercise_type', 'duration_minutes', 'estimated_calories_burned'],
@@ -265,11 +287,12 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
             fat: args['fat_g'] ? Number(args['fat_g']) : 0,
             carbs: args['carbs_g'] ? Number(args['carbs_g']) : 0,
             fiber: args['fiber_g'] ? Number(args['fiber_g']) : 0,
+            date: resolveLogDate(args['date'], todayLog.date),
           };
           mealsLogged.push(meal);
           result = {
             success: true,
-            message: `Logged ${meal.estimatedCalories} kcal for ${meal.category}`,
+            message: `Logged ${meal.estimatedCalories} kcal for ${meal.category} on ${meal.date}`,
           };
           break;
         }
@@ -279,11 +302,12 @@ Total intake: ${getTotalIntake(todayLog)} kcal | Workout burned: ${todayLog.work
             exerciseType: args['exercise_type'],
             durationMinutes: Number(args['duration_minutes']),
             estimatedCaloriesBurned: Number(args['estimated_calories_burned']),
+            date: resolveLogDate(args['date'], todayLog.date),
           };
           workoutsLogged.push(workout);
           result = {
             success: true,
-            message: `Logged ${workout.estimatedCaloriesBurned} kcal burned`,
+            message: `Logged ${workout.estimatedCaloriesBurned} kcal burned on ${workout.date}`,
           };
           break;
         }

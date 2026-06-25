@@ -141,6 +141,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const hasPending =
         response.mealsLogged.length > 0 || response.workoutsLogged.length > 0;
       if (hasPending) {
+        // Target day for this batch: the date Kendrick resolved on the items
+        // (e.g. "yesterday"), falling back to today when none was specified.
+        const targetDate =
+          response.mealsLogged.find(m => m.date)?.date ||
+          response.workoutsLogged.find(w => w.date)?.date ||
+          date;
         let draftId = 0;
         set({
           pendingItems: {
@@ -160,7 +166,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               durationMinutes: w.durationMinutes,
               estimatedCaloriesBurned: w.estimatedCaloriesBurned,
             })),
-            date,
+            date: targetDate,
           },
         });
       }
@@ -242,7 +248,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (!pending) return;
     const { meals, workouts, date } = pending;
 
-    // Insert meal_entries first so DB contains the new rows for accurate aggregation.
+    // Insert each meal via the date-aware store action so the correct day's
+    // category + macro totals are reconciled (works for today AND past days).
     for (const meal of meals) {
       if (!meal.foodDescription.trim() || meal.estimatedCalories <= 0) continue;
       // If macros are missing, estimate them from calories.
@@ -254,7 +261,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         macros.carbs = est.carbs;
         macros.fiber = est.fiber;
       }
-      await db.insertMealEntry({
+      await useDailyLogStore.getState().addMealEntry({
         date,
         category: meal.category,
         foodDescription: meal.foodDescription,
@@ -264,16 +271,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         carbs: (macros as any).carbs ?? 0,
         fiber: (macros as any).fiber ?? 0,
       });
-    }
-
-    // Recompute per-category calorie totals from DB and update daily_log accordingly.
-    const allMeals = await db.getMealEntriesForDate(date);
-    const categories = new Map<string, number>();
-    for (const m of allMeals) {
-      categories.set(m.category, (categories.get(m.category) || 0) + m.calories);
-    }
-    for (const [category, total] of categories.entries()) {
-      await useDailyLogStore.getState().setMealCalories(category, total);
     }
 
     // Commit workouts.

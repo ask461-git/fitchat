@@ -151,6 +151,7 @@ export function ChatScreen(): React.ReactElement {
       {pendingItems && (
         <View style={styles.refinementPanel}>
           <Text style={styles.refinementTitle}>✏️  Review & refine before logging</Text>
+          <Text style={styles.refinementDate}>📅  Logging to {formatSeparatorDate(pendingItems.date)}</Text>
           <Text style={styles.refinementHint}>Tap the button to approve all items as shown, or edit any row before logging.</Text>
           <TouchableOpacity style={styles.quickApproveBtn} onPress={confirmPendingItems}>
             <Text style={styles.quickApproveBtnText}>✓ Approve all and log</Text>
@@ -403,6 +404,13 @@ const styles = StyleSheet.create({
     padding: SPACING.sm,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.divider,
+  },
+  refinementDate: {
+    color: COLORS.accent,
+    fontFamily: FONT.bold,
+    fontSize: 12,
+    paddingHorizontal: SPACING.sm,
+    paddingTop: SPACING.xs,
   },
   refinementHint: {
     color: COLORS.textSecondary,
