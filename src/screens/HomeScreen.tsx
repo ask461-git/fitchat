@@ -5,7 +5,6 @@ import {
   Text,
   TouchableOpacity,
   View,
-  Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -14,7 +13,6 @@ import dayjs from 'dayjs';
 import { getTotalIntake } from '../models';
 import { useProfileStore } from '../store/profileStore';
 import { useDailyLogStore } from '../store/dailyLogStore';
-import { seedTwoWeeksOfData } from '../utils/seedData';
 import { calculateTdee } from '../services/bmr';
 import { accumulatedDeficit, deficitStats, etaDate } from '../services/calorie';
 import { StatCard } from '../components/StatCard';
@@ -244,25 +242,6 @@ export function HomeScreen(): React.ReactElement {
       >
         <Text style={styles.chatBtnText}>🎤 TALK TO KENDRICK</Text>
       </TouchableOpacity>
-
-      <TouchableOpacity
-        style={styles.seedBtn}
-        onPress={async () => {
-          try {
-            for (let i = 14; i >= 0; i--) {
-              const date = dayjs().subtract(i, 'day').format('YYYY-MM-DD');
-              await useDailyLogStore.getState().clearDay(date);
-            }
-            await seedTwoWeeksOfData(2500);
-            await useDailyLogStore.getState().loadAllLogs();
-            Alert.alert('Database wiped and re-seeded!', 'Check your graph.');
-          } catch (err) {
-            Alert.alert('Seed failed', String(err));
-          }
-        }}
-      >
-        <Text style={styles.seedBtnText}>🌱 Wipe & Seed Two Weeks</Text>
-      </TouchableOpacity>
     </ScrollView>
   );
 }
@@ -311,6 +290,4 @@ const styles = StyleSheet.create({
   macroItem: { color: COLORS.textPrimary, marginRight: SPACING.sm },
   chatBtn: { backgroundColor: COLORS.accent, borderRadius: RADIUS.md, paddingVertical: 16, alignItems: 'center', marginTop: SPACING.md },
   chatBtnText: { color: COLORS.black, fontFamily: FONT.bold, fontSize: 15 },
-  seedBtn: { backgroundColor: COLORS.surfaceAlt, borderRadius: RADIUS.md, paddingVertical: 12, alignItems: 'center', marginTop: SPACING.sm, borderWidth: 1, borderColor: COLORS.divider },
-  seedBtnText: { color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 13 },
 });
