@@ -16,7 +16,7 @@ import { useProfileStore } from '../store/profileStore';
 import { useDailyLogStore } from '../store/dailyLogStore';
 import { seedTwoWeeksOfData } from '../utils/seedData';
 import { calculateTdee } from '../services/bmr';
-import { accumulatedDeficit, etaDate } from '../services/calorie';
+import { accumulatedDeficit, deficitStats, etaDate } from '../services/calorie';
 import { StatCard } from '../components/StatCard';
 import { Loader } from '../components/Loader';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme/theme';
@@ -66,7 +66,8 @@ export function HomeScreen(): React.ReactElement {
   const accumulated = accumulatedDeficit(allLogs);
   const eta = etaDate(profile.currentWeightKg, profile.targetWeightKg, allLogs);
   const kgLeft = (profile.currentWeightKg - profile.targetWeightKg).toFixed(1);
-
+  const month = deficitStats(allLogs, 30);
+  const week = deficitStats(allLogs, 7);
   const maxDeviation = Math.max(...last7.map(l => Math.abs(l.dailyNetBalance)), 1);
   const proteinTarget = Math.round(profile.currentWeightKg * 1.8);
   const proteinMax = Math.max(...last7.map(l => Math.round(l.proteinTotal ?? 0)), proteinTarget, 1);
@@ -89,6 +90,49 @@ export function HomeScreen(): React.ReactElement {
               },
             ]}
           />
+        </View>
+      </View>
+
+      <View style={styles.avgCard}>
+        <Text style={styles.avgHeading}>AVG DAILY DEFICIT</Text>
+        <View style={styles.avgRow}>
+          <View style={styles.avgCol}>
+            <Text style={styles.avgPeriod}>LAST 7 DAYS</Text>
+            <Text
+              style={[
+                styles.avgValue,
+                { color: week.avgDeficit != null ? COLORS.deficit : COLORS.surplus },
+              ]}
+            >
+              {week.dayCount === 0
+                ? '—'
+                : `${week.avgDeficit != null ? '' : '+'}${Math.abs(Math.round(week.avgNet))}`}
+            </Text>
+            <Text style={styles.avgUnit}>kcal/day</Text>
+            <Text style={styles.avgDays}>
+              {week.dayCount} {week.dayCount === 1 ? 'day' : 'days'} logged
+            </Text>
+          </View>
+
+          <View style={styles.avgDivider} />
+
+          <View style={styles.avgCol}>
+            <Text style={styles.avgPeriod}>LAST 30 DAYS</Text>
+            <Text
+              style={[
+                styles.avgValue,
+                { color: month.avgDeficit != null ? COLORS.deficit : COLORS.surplus },
+              ]}
+            >
+              {month.dayCount === 0
+                ? '—'
+                : `${month.avgDeficit != null ? '' : '+'}${Math.abs(Math.round(month.avgNet))}`}
+            </Text>
+            <Text style={styles.avgUnit}>kcal/day</Text>
+            <Text style={styles.avgDays}>
+              {month.dayCount} {month.dayCount === 1 ? 'day' : 'days'} logged
+            </Text>
+          </View>
         </View>
       </View>
 
@@ -236,6 +280,15 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row' },
   gap: { width: SPACING.sm },
   mt: { marginTop: SPACING.sm },
+  avgCard: { backgroundColor: COLORS.surface, borderRadius: RADIUS.lg, padding: SPACING.md, marginBottom: SPACING.md },
+  avgHeading: { color: COLORS.textSecondary, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.8, marginBottom: SPACING.sm },
+  avgRow: { flexDirection: 'row', alignItems: 'stretch' },
+  avgCol: { flex: 1, alignItems: 'center' },
+  avgDivider: { width: 1, backgroundColor: COLORS.divider, marginHorizontal: SPACING.sm },
+  avgPeriod: { color: COLORS.textSecondary, fontFamily: FONT.bold, fontSize: 10, letterSpacing: 0.8 },
+  avgValue: { fontFamily: FONT.bold, fontSize: 30, marginTop: 4 },
+  avgUnit: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 11 },
+  avgDays: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 11, marginTop: 4 },
   etaCard: { backgroundColor: COLORS.surfaceAlt, borderRadius: RADIUS.lg, padding: SPACING.md },
   etaKg: { color: COLORS.textPrimary, fontFamily: FONT.bold, fontSize: 15 },
   etaSub: { color: COLORS.textSecondary, fontFamily: FONT.regular, fontSize: 12, marginTop: 4 },

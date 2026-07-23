@@ -25,6 +25,44 @@ export function averageDailyDeficit(logs: DailyLog[]): number | null {
   return Math.abs(avgNet);
 }
 
+export interface DeficitStats {
+  /** Signed average daily net calories. Negative = deficit, positive = surplus. */
+  avgNet: number;
+  /** Average daily deficit as a positive number, or null if net is a surplus. */
+  avgDeficit: number | null;
+  /** Number of logged days counted in this window. */
+  dayCount: number;
+}
+
+/**
+ * Average daily net calories over the most recent `windowDays` calendar days
+ * (or all logs when `windowDays` is omitted). Only days that were actually
+ * logged are counted, and `dayCount` reports how many that was.
+ */
+export function deficitStats(logs: DailyLog[], windowDays?: number): DeficitStats {
+  let scoped = logs;
+
+  if (typeof windowDays === 'number') {
+    const cutoff = new Date();
+    cutoff.setHours(0, 0, 0, 0);
+    cutoff.setDate(cutoff.getDate() - (windowDays - 1));
+    scoped = logs.filter(l => new Date(l.date) >= cutoff);
+  }
+
+  if (scoped.length === 0) {
+    return { avgNet: 0, avgDeficit: null, dayCount: 0 };
+  }
+
+  const totalNet = scoped.reduce((sum, l) => sum + getNetCal(l), 0);
+  const avgNet = totalNet / scoped.length;
+
+  return {
+    avgNet,
+    avgDeficit: avgNet < 0 ? Math.abs(avgNet) : null,
+    dayCount: scoped.length,
+  };
+}
+
 /** Days until target weight is reached. Null if insufficient data. */
 export function etaDays(
   currentWeightKg: number,
