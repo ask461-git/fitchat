@@ -14,7 +14,7 @@ import { getTotalIntake } from '../models';
 import { useProfileStore } from '../store/profileStore';
 import { useDailyLogStore } from '../store/dailyLogStore';
 import { calculateTdee } from '../services/bmr';
-import { accumulatedDeficit, deficitStats, etaDate } from '../services/calorie';
+import { accumulatedDeficit, deficitStats, etaDate, workoutBurnStats } from '../services/calorie';
 import { StatCard } from '../components/StatCard';
 import { Loader } from '../components/Loader';
 import { COLORS, FONT, RADIUS, SPACING } from '../theme/theme';
@@ -66,6 +66,8 @@ export function HomeScreen(): React.ReactElement {
   const kgLeft = (profile.currentWeightKg - profile.targetWeightKg).toFixed(1);
   const month = deficitStats(allLogs, 30);
   const week = deficitStats(allLogs, 7);
+  const burnWeek = workoutBurnStats(allLogs, 7);
+  const burnMonth = workoutBurnStats(allLogs, 30);
   const maxDeviation = Math.max(...last7.map(l => Math.abs(l.dailyNetBalance)), 1);
   const proteinTarget = Math.round(profile.currentWeightKg * 1.8);
   const proteinMax = Math.max(...last7.map(l => Math.round(l.proteinTotal ?? 0)), proteinTarget, 1);
@@ -95,7 +97,7 @@ export function HomeScreen(): React.ReactElement {
         <Text style={styles.avgHeading}>AVG DAILY DEFICIT</Text>
         <View style={styles.avgRow}>
           <View style={styles.avgCol}>
-            <Text style={styles.avgPeriod}>LAST 7 DAYS</Text>
+            <Text style={styles.avgPeriod}>LAST 7 LOGGED</Text>
             <Text
               style={[
                 styles.avgValue,
@@ -115,7 +117,7 @@ export function HomeScreen(): React.ReactElement {
           <View style={styles.avgDivider} />
 
           <View style={styles.avgCol}>
-            <Text style={styles.avgPeriod}>LAST 30 DAYS</Text>
+            <Text style={styles.avgPeriod}>LAST 30 LOGGED</Text>
             <Text
               style={[
                 styles.avgValue,
@@ -129,6 +131,35 @@ export function HomeScreen(): React.ReactElement {
             <Text style={styles.avgUnit}>kcal/day</Text>
             <Text style={styles.avgDays}>
               {month.dayCount} {month.dayCount === 1 ? 'day' : 'days'} logged
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.avgCard}>
+        <Text style={styles.avgHeading}>AVG CALORIES BURNED</Text>
+        <View style={styles.avgRow}>
+          <View style={styles.avgCol}>
+            <Text style={styles.avgPeriod}>LAST 7 DAYS</Text>
+            <Text style={[styles.avgValue, { color: COLORS.deficit }]}>
+              {burnWeek.dayCount === 0 ? '—' : Math.round(burnWeek.avgBurned)}
+            </Text>
+            <Text style={styles.avgUnit}>kcal/day</Text>
+            <Text style={styles.avgDays}>
+              {burnWeek.activeDays}/{burnWeek.dayCount} active
+            </Text>
+          </View>
+
+          <View style={styles.avgDivider} />
+
+          <View style={styles.avgCol}>
+            <Text style={styles.avgPeriod}>LAST 30 DAYS</Text>
+            <Text style={[styles.avgValue, { color: COLORS.deficit }]}>
+              {burnMonth.dayCount === 0 ? '—' : Math.round(burnMonth.avgBurned)}
+            </Text>
+            <Text style={styles.avgUnit}>kcal/day</Text>
+            <Text style={styles.avgDays}>
+              {burnMonth.activeDays}/{burnMonth.dayCount} active
             </Text>
           </View>
         </View>
