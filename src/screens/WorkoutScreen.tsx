@@ -16,7 +16,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { WorkoutLog } from '../models';
-import { WORKOUT_TEMPLATES } from '../data/workoutTemplates';
+import { WORKOUT_TEMPLATES, DAYS_PER_WEEK, ROTATION_WEEKS } from '../data/workoutTemplates';
 import type { ExerciseTemplate } from '../data/workoutTemplates';
 import { estimateCardioForUser, estimateCardioWithAI, confirmAndLogCardio } from '../services/cardioFlow';
 import type { CardioConfidence } from '../services/cardioMet';
@@ -52,17 +52,22 @@ export function WorkoutScreen(): React.ReactElement {
     loadAllLogs();
   }, [loadAllLogs, loadTodayWorkouts]);
 
-  // Default template selection by weekday
+  // Default template selection: pick the current week-of-cycle (rotates every 7
+  // days across the 3 week variants) and the day within that week by weekday.
   const [selectedTemplateIndex, setSelectedTemplateIndex] = useState<number>(() => {
     const dow = dayjs().day(); // 0 Sun .. 6 Sat
+    let dayIndex: number;
     switch (dow) {
-      case 1: return 0; // Mon -> Push
-      case 2: return 1; // Tue -> Pull
-      case 3: return 2; // Wed -> Cardio
-      case 4: return 3; // Thu -> Legs
-      case 5: return 4; // Fri -> Hypertrophy
-      default: return 0;
+      case 1: dayIndex = 0; break; // Mon -> Push
+      case 2: dayIndex = 1; break; // Tue -> Pull
+      case 3: dayIndex = 2; break; // Wed -> Cardio
+      case 4: dayIndex = 3; break; // Thu -> Legs
+      case 5: dayIndex = 4; break; // Fri -> Upper Pump
+      default: dayIndex = 0; break; // weekend -> Push
     }
+    // 2024-01-01 is a Monday, so day-diff/7 gives calendar-aligned week numbers.
+    const weekOfCycle = Math.floor(dayjs().diff(dayjs('2024-01-01'), 'day') / 7) % ROTATION_WEEKS;
+    return weekOfCycle * DAYS_PER_WEEK + dayIndex;
   });
 
   const scrollRef = useRef<ScrollView>(null);

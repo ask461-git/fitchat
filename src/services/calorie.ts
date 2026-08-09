@@ -89,6 +89,24 @@ function daysInclusive(startStr: string, endStr: string): number {
 }
 
 /**
+ * Logs falling within the most recent `windowDays` calendar days, anchored to
+ * the latest *logged* date (the current wall-clock date is never used). The
+ * window is selected strictly by date, so it includes however many — or few —
+ * logs actually fall in that span, not a fixed count of recent data points.
+ */
+function logsWithinDays(logs: DailyLog[], windowDays: number): DailyLog[] {
+  if (logs.length === 0) return logs;
+  const anchor = logs.reduce((max, l) => (l.date > max ? l.date : max), logs[0].date);
+  const start = parseDateStr(anchor);
+  start.setDate(start.getDate() - (windowDays - 1));
+  const y = start.getFullYear();
+  const m = String(start.getMonth() + 1).padStart(2, '0');
+  const d = String(start.getDate()).padStart(2, '0');
+  const startStr = `${y}-${m}-${d}`;
+  return logs.filter(l => l.date >= startStr && l.date <= anchor);
+}
+
+/**
  * Average calories burned per day over the most recent `windowDays` days
  * (or all history when `windowDays` is omitted). Every day is considered,
  * so rest days with no workout count as 0 burned and drag the average down.
@@ -138,7 +156,13 @@ export function etaDays(
   const kgToLose = currentWeightKg - targetWeightKg;
   if (kgToLose <= 0) return 0;
 
-  const avgDeficit = averageDailyDeficit(logs);
+  // Base the projection on the last 30 days STRICTLY BY DATE — a calendar
+  // window anchored to the most recent logged date, not the last 30 logged
+  // data points. Sparse logging inside the window keeps its own denominator
+  // (averageDailyDeficit averages over logged days), but stale logs older than
+  // 30 days never influence the current rate.
+  const recent = logsWithinDays(logs, 30);
+  const avgDeficit = averageDailyDeficit(recent);
   if (!avgDeficit || avgDeficit <= 0) return null;
 
   return Math.ceil((kgToLose * 7700) / avgDeficit);
