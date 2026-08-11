@@ -14,6 +14,7 @@ import { MealLogScreen } from '../screens/MealLogScreen';
 import { WorkoutScreen } from '../screens/WorkoutScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { DayDetailScreen } from '../screens/DayDetailScreen';
+import { WeeklyReportScreen } from '../screens/WeeklyReportScreen';
 import { Loader } from '../components/Loader';
 import { COLORS, FONT } from '../theme/theme';
 
@@ -22,6 +23,7 @@ export type RootStackParamList = {
   Tabs: undefined;
   Chat: undefined;
   DayDetail: { date: string };
+  WeeklyReport: undefined;
   Splash: undefined;
 };
 
@@ -131,6 +133,17 @@ export function AppNavigator() {
                 headerTintColor: COLORS.textPrimary,
                 headerTitleStyle: { fontFamily: FONT.bold },
               })}
+            />
+            <Stack.Screen
+              name="WeeklyReport"
+              component={WeeklyReportScreen}
+              options={{
+                headerShown: true,
+                title: 'Weekly Report',
+                headerStyle: { backgroundColor: COLORS.surface },
+                headerTintColor: COLORS.textPrimary,
+                headerTitleStyle: { fontFamily: FONT.bold },
+              }}
             />
           </>
         )}

@@ -1,5 +1,5 @@
 import * as SQLite from 'expo-sqlite';
-import type { ChatMessage, DailyLog, MealEntry, Profile, WorkoutLog } from '../models';
+import type { ChatMessage, DailyLog, MealEntry, Profile, WeeklyReport, WeeklyReportMetrics, WorkoutLog } from '../models';
 
 // Module-level singleton — opened once and reused.
 let _db: SQLite.SQLiteDatabase | null = null;
@@ -82,11 +82,21 @@ export async function getDb(): Promise<SQLite.SQLiteDatabase> {
       value TEXT NOT NULL DEFAULT ''
     );
 
+    CREATE TABLE IF NOT EXISTS weekly_reports (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      week_start TEXT NOT NULL UNIQUE,
+      week_end TEXT NOT NULL,
+      generated_at TEXT NOT NULL,
+      commentary TEXT NOT NULL DEFAULT '',
+      metrics_json TEXT NOT NULL DEFAULT '{}'
+    );
+
     CREATE INDEX IF NOT EXISTS idx_daily_date        ON daily_logs(date);
     CREATE INDEX IF NOT EXISTS idx_workout_date      ON workout_logs(date);
     CREATE INDEX IF NOT EXISTS idx_chat_date         ON chat_messages(date);
     CREATE INDEX IF NOT EXISTS idx_meal_entries_date ON meal_entries(date);
     CREATE INDEX IF NOT EXISTS idx_api_usage_date    ON api_usage(date);
+    CREATE INDEX IF NOT EXISTS idx_weekly_reports    ON weekly_reports(week_start);
   `);
 
   // Ensure new columns exist on older DBs.
@@ -220,6 +230,15 @@ interface MealEntryRow {
   fiber_g: number;
 }
 
+interface WeeklyReportRow {
+  id: number;
+  week_start: string;
+  week_end: string;
+  generated_at: string;
+  commentary: string;
+  metrics_json: string;
+}
+
 // ---------------------------------------------------------------------------
 // Mappers
 // ---------------------------------------------------------------------------
@@ -288,6 +307,23 @@ function toMealEntry(r: MealEntryRow): MealEntry {
     fat: r.fat_g,
     carbs: r.carbs_g,
     fiber: r.fiber_g,
+  };
+}
+
+function toWeeklyReport(r: WeeklyReportRow): WeeklyReport {
+  let metrics: WeeklyReportMetrics;
+  try {
+    metrics = JSON.parse(r.metrics_json) as WeeklyReportMetrics;
+  } catch {
+    metrics = {} as WeeklyReportMetrics;
+  }
+  return {
+    id: r.id,
+    weekStart: r.week_start,
+    weekEnd: r.week_end,
+    generatedAt: r.generated_at,
+    commentary: r.commentary,
+    metrics,
   };
 }
 
@@ -636,4 +672,84 @@ export async function setSetting(key: string, value: string): Promise<void> {
     'INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
     [key, value],
   );
+}
+
+// ---------------------------------------------------------------------------
+// Date-range readers (used by the weekly report)
+// ---------------------------------------------------------------------------
+
+export async function getDailyLogsForDateRange(startDate: string, endDate: string): Promise<DailyLog[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<DailyLogRow>(
+    'SELECT * FROM daily_logs WHERE date >= ? AND date <= ? ORDER BY date ASC',
+    [startDate, endDate],
+  );
+  return rows.map(toDailyLog);
+}
+
+export async function getWorkoutsForDateRange(startDate: string, endDate: string): Promise<WorkoutLog[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<WorkoutRow>(
+    'SELECT * FROM workout_logs WHERE date >= ? AND date <= ? ORDER BY date ASC, id ASC',
+    [startDate, endDate],
+  );
+  return rows.map(toWorkout);
+}
+
+export async function getMealEntriesForDateRange(startDate: string, endDate: string): Promise<MealEntry[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<MealEntryRow>(
+    'SELECT * FROM meal_entries WHERE date >= ? AND date <= ? ORDER BY date ASC, id ASC',
+    [startDate, endDate],
+  );
+  return rows.map(toMealEntry);
+}
+
+// ---------------------------------------------------------------------------
+// Weekly Reports
+// ---------------------------------------------------------------------------
+
+export async function upsertWeeklyReport(report: WeeklyReport): Promise<WeeklyReport> {
+  const db = await getDb();
+  const metricsJson = JSON.stringify(report.metrics ?? {});
+  await db.runAsync(
+    `INSERT INTO weekly_reports (week_start, week_end, generated_at, commentary, metrics_json)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(week_start) DO UPDATE SET
+       week_end = excluded.week_end,
+       generated_at = excluded.generated_at,
+       commentary = excluded.commentary,
+       metrics_json = excluded.metrics_json`,
+    [report.weekStart, report.weekEnd, report.generatedAt, report.commentary, metricsJson],
+  );
+  const row = await db.getFirstAsync<WeeklyReportRow>(
+    'SELECT * FROM weekly_reports WHERE week_start = ?',
+    [report.weekStart],
+  );
+  return row ? toWeeklyReport(row) : report;
+}
+
+export async function getWeeklyReport(weekStart: string): Promise<WeeklyReport | null> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<WeeklyReportRow>(
+    'SELECT * FROM weekly_reports WHERE week_start = ?',
+    [weekStart],
+  );
+  return row ? toWeeklyReport(row) : null;
+}
+
+export async function getLatestWeeklyReport(): Promise<WeeklyReport | null> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<WeeklyReportRow>(
+    'SELECT * FROM weekly_reports ORDER BY week_start DESC LIMIT 1',
+  );
+  return row ? toWeeklyReport(row) : null;
+}
+
+export async function getAllWeeklyReports(): Promise<WeeklyReport[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync<WeeklyReportRow>(
+    'SELECT * FROM weekly_reports ORDER BY week_start DESC',
+  );
+  return rows.map(toWeeklyReport);
 }

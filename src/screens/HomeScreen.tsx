@@ -13,6 +13,7 @@ import dayjs from 'dayjs';
 import { getTotalIntake } from '../models';
 import { useProfileStore } from '../store/profileStore';
 import { useDailyLogStore } from '../store/dailyLogStore';
+import { useWeeklyReportStore } from '../store/weeklyReportStore';
 import { calculateTdee } from '../services/bmr';
 import { accumulatedDeficit, deficitStats, etaDate, workoutBurnStats } from '../services/calorie';
 import { StatCard } from '../components/StatCard';
@@ -26,6 +27,8 @@ export function HomeScreen(): React.ReactElement {
   const navigation = useNavigation<Nav>();
   const { profile, isLoading: profileLoading } = useProfileStore();
   const { todayLog, allLogs, isLoading: logLoading } = useDailyLogStore();
+  const latestReport = useWeeklyReportStore(s => s.latest);
+  const reportGenerating = useWeeklyReportStore(s => s.isGenerating);
 
   const tdee = profile ? Math.round(calculateTdee(profile)) : 2000;
 
@@ -92,6 +95,47 @@ export function HomeScreen(): React.ReactElement {
           />
         </View>
       </View>
+
+      {/* Weekly report — Kendrick's Monday review of last week */}
+      <TouchableOpacity
+        style={styles.reportCard}
+        activeOpacity={0.85}
+        onPress={() => navigation.navigate('WeeklyReport')}
+      >
+        <View style={styles.reportHeaderRow}>
+          <Text style={styles.reportTitle}>📊 WEEKLY REPORT</Text>
+          <Text style={styles.reportChevron}>›</Text>
+        </View>
+        {reportGenerating && !latestReport ? (
+          <Text style={styles.reportBody}>Kendrick is reviewing last week…</Text>
+        ) : latestReport ? (
+          <>
+            <Text style={styles.reportRange}>
+              {dayjs(latestReport.weekStart).format('MMM D')} – {dayjs(latestReport.weekEnd).format('MMM D')}
+            </Text>
+            <Text style={styles.reportBody} numberOfLines={3}>
+              {latestReport.commentary}
+            </Text>
+            <View style={styles.reportPillRow}>
+              <Text style={styles.reportPill}>
+                Meals {latestReport.metrics.mealQualityScore}/100
+              </Text>
+              <Text style={styles.reportPill}>
+                {latestReport.metrics.avgDeficit != null
+                  ? `−${Math.round(latestReport.metrics.avgDeficit)} kcal/day`
+                  : `+${Math.abs(Math.round(latestReport.metrics.avgNetCal))} kcal/day`}
+              </Text>
+              <Text style={styles.reportPill}>
+                {latestReport.metrics.workoutDays}/7 workouts
+              </Text>
+            </View>
+          </>
+        ) : (
+          <Text style={styles.reportBody}>
+            No report yet. Log a full week and check back Monday for Kendrick's review.
+          </Text>
+        )}
+      </TouchableOpacity>
 
       <View style={styles.avgCard}>
         <Text style={styles.avgHeading}>AVG DAILY DEFICIT</Text>
@@ -287,6 +331,30 @@ const styles = StyleSheet.create({
   netValue: { fontFamily: FONT.bold, fontSize: 40, marginVertical: SPACING.sm },
   progressTrack: { height: 6, backgroundColor: COLORS.surfaceAlt, borderRadius: 4, overflow: 'hidden' },
   progressFill: { height: 6, borderRadius: 4 },
+  reportCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.accent,
+  },
+  reportHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  reportTitle: { color: COLORS.accent, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.8 },
+  reportChevron: { color: COLORS.accent, fontFamily: FONT.bold, fontSize: 20 },
+  reportRange: { color: COLORS.textSecondary, fontFamily: FONT.bold, fontSize: 11, marginTop: SPACING.xs },
+  reportBody: { color: COLORS.textPrimary, fontFamily: FONT.regular, fontSize: 13, lineHeight: 20, marginTop: SPACING.xs },
+  reportPillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.xs, marginTop: SPACING.sm },
+  reportPill: {
+    color: COLORS.textPrimary,
+    fontFamily: FONT.bold,
+    fontSize: 10,
+    backgroundColor: COLORS.surfaceAlt,
+    borderRadius: RADIUS.xl,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    overflow: 'hidden',
+  },
   row: { flexDirection: 'row' },
   gap: { width: SPACING.sm },
   mt: { marginTop: SPACING.sm },

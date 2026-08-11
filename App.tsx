@@ -12,6 +12,7 @@ import { getDb } from './src/database/db';
 import { useProfileStore } from './src/store/profileStore';
 import { useDailyLogStore } from './src/store/dailyLogStore';
 import { useChatStore } from './src/store/chatStore';
+import { useWeeklyReportStore } from './src/store/weeklyReportStore';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { Loader } from './src/components/Loader';
 import { COLORS } from './src/theme/theme';
@@ -74,6 +75,8 @@ export default function App() {
   const loadAllLogs = useDailyLogStore(s => s.loadAllLogs);
   const loadTodayWorkouts = useDailyLogStore(s => s.loadTodayWorkouts);
   const loadChat = useChatStore(s => s.loadToday);
+  const loadReports = useWeeklyReportStore(s => s.loadReports);
+  const ensureWeeklyReport = useWeeklyReportStore(s => s.ensureWeeklyReport);
 
   useEffect(() => {
     async function init() {
@@ -83,15 +86,18 @@ export default function App() {
         console.log('[FitChat] init: loading profile');
         await loadProfile();
         console.log('[FitChat] init: loading logs + workouts + chat');
-        await Promise.all([loadToday(), loadAllLogs(), loadTodayWorkouts(), loadChat()]);
+        await Promise.all([loadToday(), loadAllLogs(), loadTodayWorkouts(), loadChat(), loadReports()]);
         console.log('[FitChat] init: complete');
         setDbReady(true);
+        // Generate last week's report in the background (Monday-morning review).
+        // Non-blocking so it never delays the first paint.
+        ensureWeeklyReport().catch(() => {});
       } catch (e) {
         console.error('[FitChat] init failed:', e);
       }
     }
     init();
-  }, [loadProfile, loadToday, loadAllLogs, loadTodayWorkouts, loadChat]);
+  }, [loadProfile, loadToday, loadAllLogs, loadTodayWorkouts, loadChat, loadReports, ensureWeeklyReport]);
 
   // Hide the native splash as soon as fonts are ready so our custom <Loader />
   // (which shows the version/build info) becomes visible while the DB loads,

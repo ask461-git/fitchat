@@ -141,3 +141,37 @@ export interface ChatMessage {
   content: string;
   timestamp: string; // ISO datetime string
 }
+
+// ---------------------------------------------------------------------------
+// Weekly Report — generated every Monday for the previous Mon–Sun week.
+// ---------------------------------------------------------------------------
+
+export interface WeeklyReportMetrics {
+  daysLogged: number;        // days in the week with any intake or workout
+  totalIntake: number;       // kcal eaten across the week
+  avgIntake: number;         // kcal per logged day
+  avgNetCal: number;         // signed kcal per logged day (negative = deficit)
+  totalDeficit: number;      // sum of |net| on deficit days
+  avgDeficit: number | null; // positive kcal/day, or null if net surplus
+  deficitDays: number;
+  surplusDays: number;
+  avgProtein: number;        // g per logged day
+  avgFiber: number;          // g per logged day
+  avgCarbs: number;          // g per logged day
+  avgFat: number;            // g per logged day
+  proteinTarget: number;     // g/day goal (weight * 1.8)
+  workoutDays: number;       // distinct days with a workout
+  workoutCount: number;      // total workout sessions
+  totalBurned: number;       // kcal burned across the week
+  avgBurned: number;         // kcal burned per day (7-day denominator)
+  mealQualityScore: number;  // 0–100 heuristic
+}
+
+export interface WeeklyReport {
+  id?: number;
+  weekStart: string;   // Monday YYYY-MM-DD
+  weekEnd: string;     // Sunday YYYY-MM-DD
+  generatedAt: string; // ISO datetime string
+  commentary: string;  // Kendrick's written review
+  metrics: WeeklyReportMetrics;
+}

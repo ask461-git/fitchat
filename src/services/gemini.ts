@@ -1,7 +1,6 @@
-import type { DailyLog, Profile } from '../models';
+import type { DailyLog, Profile, WeeklyReportMetrics } from '../models';
 import { getTotalIntake, getNetCal } from '../models';
 import { calculateTdee } from './bmr';
-
 const API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY ?? '';
 const MODEL = 'gemini-2.5-flash';
 const BASE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
@@ -463,4 +462,83 @@ export function estimateMacros(calories: number) {
   const carbs = Math.round((calories * cPerc) / 4);
   const fiber = Math.round((calories * fibPerc) / 2);
   return { protein, fat, carbs, fiber };
+}
+
+// ---------------------------------------------------------------------------
+// Weekly report commentary — Kendrick reviews the previous Mon–Sun week.
+// ---------------------------------------------------------------------------
+
+export async function generateWeeklyReport(params: {
+  profile: Profile;
+  weekStart: string;
+  weekEnd: string;
+  metrics: WeeklyReportMetrics;
+}): Promise<{ commentary: string; usage: { promptTokens: number; candidatesTokens: number } }> {
+  const { profile, weekStart, weekEnd, metrics: m } = params;
+
+  const deficitLine =
+    m.avgDeficit != null
+      ? `Averaged a ${Math.round(m.avgDeficit)} kcal/day DEFICIT`
+      : `Averaged a ${Math.abs(Math.round(m.avgNetCal))} kcal/day SURPLUS`;
+
+  const summary = `Week ${weekStart} to ${weekEnd} for ${profile.name} (goal: ${profile.currentWeightKg}kg → ${profile.targetWeightKg}kg).
+
+CALORIE DEFICIT:
+- ${deficitLine} across ${m.daysLogged} logged day(s).
+- ${m.deficitDays} deficit day(s), ${m.surplusDays} surplus day(s). Total deficit banked: ${Math.round(m.totalDeficit)} kcal.
+- Avg intake: ${Math.round(m.avgIntake)} kcal/day.
+
+MEAL QUALITY (heuristic score ${m.mealQualityScore}/100):
+- Avg protein: ${Math.round(m.avgProtein)}g/day vs target ${m.proteinTarget}g.
+- Avg fiber: ${Math.round(m.avgFiber)}g/day (aim ~25-30g).
+- Avg carbs: ${Math.round(m.avgCarbs)}g, avg fat: ${Math.round(m.avgFat)}g.
+- Logged food on ${m.daysLogged}/7 days.
+
+WORKOUTS:
+- ${m.workoutCount} session(s) across ${m.workoutDays}/7 day(s).
+- Burned ${Math.round(m.totalBurned)} kcal total (${Math.round(m.avgBurned)} kcal/day avg).`;
+
+  const systemPrompt = `You are Kendrick, a sharp, direct, warm personal fitness coach. Write a WEEKLY REVIEW for the user based on the data provided.
+
+STYLE (strict):
+- Plain, everyday English. No rap, verses, rhymes, or lyrics.
+- 4-6 short sentences, no more. No headings, no bullet lists, no markdown.
+- Structure: (1) one line on the calorie deficit / weight-loss progress, (2) one line on meal quality — call out protein and fiber specifically, (3) one line on workout consistency, (4) end with ONE concrete focus for the coming week.
+- Be honest: praise what was good, name what slipped. Occasionally call them "cousin". No filler, no sign-off.`;
+
+  try {
+    const res = await fetch(`${BASE_URL}?key=${API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ role: 'user', parts: [{ text: summary }] }],
+        generation_config: { temperature: 0.7, max_output_tokens: 400 },
+      }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Gemini API error ${res.status}: ${await res.text()}`);
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = (await res.json()) as any;
+    const promptTokens = Number(data?.usageMetadata?.promptTokenCount ?? 0);
+    const candidatesTokens = Number(data?.usageMetadata?.candidatesTokenCount ?? 0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const parts: any[] = data?.candidates?.[0]?.content?.parts ?? [];
+    const commentary = parts
+      .filter((p: any) => p.text)
+      .map((p: any) => p.text as string)
+      .join('\n')
+      .trim();
+
+    return {
+      commentary: commentary || 'No commentary available for this week.',
+      usage: { promptTokens, candidatesTokens },
+    };
+  } catch (err) {
+    console.error('🚨 Weekly report generation error:', err);
+    throw err;
+  }
 }

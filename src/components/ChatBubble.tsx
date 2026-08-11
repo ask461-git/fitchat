@@ -16,7 +16,7 @@ export function ChatBubble({ text, isUser, timestamp }: ChatBubbleProps): React.
   return (
     <View style={[styles.wrapper, isUser ? styles.wrapperRight : styles.wrapperLeft]}>
       <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleModel]}>
-        <Text style={[styles.text, isUser ? styles.textUser : styles.textModel]}>
+        <Text selectable style={[styles.text, isUser ? styles.textUser : styles.textModel]}>
           {text}
         </Text>
         <Text style={[styles.time, isUser ? styles.timeUser : styles.timeModel]}>
